@@ -1,0 +1,44 @@
+---
+description: 往診調整プロジェクトの基本方針と参照先
+alwaysApply: true
+---
+
+# 往診調整 — プロジェクト基本
+
+ワークスペースルートは `往診調整/`。親の `Cursor/` 全体ではない。
+
+## 作業開始時に読む
+
+1. `.cursor/skills/ousehin-chousei/SKILL.md`（医師枠・NG・期限・調整方針）
+2. `往診ルール`（医師の出発・定員・送迎）
+3. 最新の希望CSV（日列 **TRUE=NG** / FALSE=候補）
+4. 最新の編集用台帳CSV（住所）
+5. 月次手順: `tasks/monthly-checklist.md`
+6. 訂正履歴: `tasks/lessons.md`
+
+## データの正本
+
+| 用途 | 正本 |
+|------|------|
+| 患者・期限（Notion CSV由来） | `db/oushin.sqlite` ← `raw/*.csv` 取込 |
+| スタッフ確定の直近往診 | `records/`（MD・JSON）→ `db/visit_records.sqlite` |
+| 月次割当 | `db/schedule.sqlite` ← `exports/*_schedule_overrides.json` |
+| 生成物 | `exports/*往診リスト*` |
+
+確定実施は Notion CSV より `records/` を優先する。
+
+## 調整の優先順位
+
+1. 期限・医師NG（三原→片山NG、木村→鳥越NG、渡部→鳥越のみ）
+2. 時間帯NG（ETAで検証。ラベルだけで判断しない）
+3. 花輪定員5。超過は片山へ（片山NG患者は振らない）
+4. 同建物・近接エリアは連続訪問を優先
+
+## 変更後の検証
+
+```bash
+python3 scripts/generate_<月>_schedule.py
+python3 scripts/build_<月>_schedule_html.py
+```
+
+TIME_NG_WARN が出ないこと、医師NG衝突がないことを確認。レビューは `tasks/todo.md` に記録する。

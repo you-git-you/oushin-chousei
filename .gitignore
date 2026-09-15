@@ -1,0 +1,37 @@
+# SQLite正本（PHIを含むためコミットしない）
+db/
+db/*.sqlite
+db/*.sqlite-*
+
+# 取込元CSV（患者氏名・住所・ID）
+*.csv
+
+# 生成物（往診リスト・期限一覧・制約JSON）
+exports/
+
+# 患者記録（構造化データ・確定ルートMD）
+records/data/
+records/*.md
+!records/README.md
+
+# ルート直下の期限一覧（生成物のコピー）
+往診期限一覧*.md
+往診期限一覧*.csv
+
+# スクリーンショット（PHIが写る可能性）
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# 秘密情報
+.env
+.env.*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store

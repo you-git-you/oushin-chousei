@@ -1,0 +1,32 @@
+---
+description: スケジュール生成スクリプトの編集・検証ルール
+globs: scripts/generate_*.py,scripts/build_*_schedule*.py,scripts/apply_schedule_overrides.py
+alwaysApply: false
+---
+
+# スケジュールスクリプト
+
+## 月次スクリプトの構成
+
+- `generate_<月>_schedule.py` — 割当ロジック・MD生成
+- `build_<月>_schedule_html.py` — HTML・印刷用UI
+- `exports/<月>_schedule_overrides.json` — 手動並び替えの正本
+
+新しい月は直近月のスクリプトを複製し、医師枠・片山実施日・希望CSVパスを更新する。
+
+## 編集時のチェックリスト
+
+- [ ] `EXCLUDED_IDS` と希望CSVの状態列で除外判定（「ご逝去」コメントだけで除外しない）
+- [ ] 医師NG固定3名を `classify_doctor_pref` / ピンで反映
+- [ ] `DEPARTURE_TRAVEL_MIN_BY_ID`（水上 b288・鴇田 b216 は出発から40分）
+- [ ] 花輪＝榎本駐車場10:15、片山＝ローソン前13:15（片山に榎本を当てない）
+- [ ] 地図ジオコードは国土地理院 AddressSearch（Photon/Nominatim は使わない）
+
+## 再生成後
+
+```bash
+python3 scripts/generate_<月>_schedule.py
+python3 scripts/build_<月>_schedule_html.py
+```
+
+成果物の TIME_NG_WARN・医師NG衝突・件数を確認し、`tasks/todo.md` にレビューを追記する。
