@@ -33,6 +33,7 @@ python3 scripts/import_visit_records.py --sync-oushin
 ```bash
 python3 scripts/export_visit_records.py
 python3 scripts/export_september_targets.py   # 9月往診対象一覧
+python3 scripts/export_october_targets.py     # 10月往診対象 TSV/CSV（exports/）
 ```
 
 ## ファイル一覧
