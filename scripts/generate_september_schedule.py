@@ -31,7 +31,7 @@ CONSTRAINTS_PATH = ROOT / "exports/september_patient_constraints.json"
 PERIOD_KEY = "2026-09"
 
 EXCLUDED_IDS = {
-    "b428", "b297", "b450", "b467", "b418", "b478", "b264", "b242", "b442",
+    "b297", "b450", "b467", "b418", "b478", "b264", "b242", "b442",
     "b11",
     "b447",
     "b496",  # 岡村昭一：8/14ご逝去
@@ -60,6 +60,7 @@ ADDRESS_OVERRIDES: dict[str, str] = {
     "b381": "東京都練馬区西大泉4-6-12",
     "b271": "東京都練馬区大泉町2-55-1",
     "b514": "練馬区大泉学園町4-8-4",
+    "b428": "東京都杉並区井草3-17-13そんぽの家S井荻　503",
 }
 
 # 台帳未掲載・表記修正（台帳より優先）
@@ -617,6 +618,17 @@ def append_manual_patients(
             address=ledger.get("b271") or ADDRESS_OVERRIDES["b271"],
             doctor_pref="hanawa",
         ),
+        Patient(
+            chart_id="b428",
+            name=LEDGER_NAMES.get("b428") or "仲 里路",
+            insurance="介護",
+            deadline="2026-08-31",
+            comment="入院休止後の再開。9/26鳥越・小林誠の直後（S井荻）",
+            status_note="",
+            eligible_days={"9/26(土)"},
+            address=ledger.get("b428") or ADDRESS_OVERRIDES["b428"],
+            doctor_pref="torikoe",
+        ),
     ]
     for p in manuals:
         if p.chart_id in by_id:
@@ -816,6 +828,14 @@ def apply_pins(patients: list[Patient]) -> None:
             "再開。9/28花輪末尾。8/26退院の1ヶ月は9/26のため2日超過",
         )
         by_id["b271"].doctor_pref = "hanawa"
+    if "b428" in by_id:
+        pin(
+            by_id["b428"],
+            "9/26(土)",
+            "鳥越",
+            "再開。9/26鳥越・小林誠の直後（S井荻）",
+        )
+        by_id["b428"].doctor_pref = "torikoe"
 
     # 花輪定員5のため、残りの月曜希望は片山（9/7のみ）へ寄せる準備
     for cid in ("b498", "b307", "b065", "b439"):
@@ -1213,6 +1233,8 @@ def time_window_priority(a: Assignment, doctor: str) -> tuple[int, int]:
         return (-1, 0)
     if cid == "b511":  # 小林誠：高松・9/26は田代（石町）の直後
         return (2, 59)
+    if cid == "b428":  # 仲里路：S井荻・9/26は小林誠の直後
+        return (2, 60)
 
     if cid == "b138":  # 渡部：土曜14時以降
         return (3, 0)
@@ -1670,7 +1692,6 @@ def collect_not_on_list(assigned_ids: set[str]) -> list[dict[str, str]]:
         "b11": ("終了", "終了見込み"),
         "b447": ("除外", "枠解除"),
         "b442": ("終了", "終了"),
-        "b428": ("除外", "リスト除外"),
         "b450": ("除外", "リスト除外"),
         "b467": ("終了", "往診不要・終了"),
         "b478": ("除外", "リスト除外"),
@@ -1769,7 +1790,7 @@ def generate_markdown(
     lines.append("# 9月往診リスト（2026年）")
     lines.append("")
     lines.append("> 作成日: 2026-08-21 ｜ 9月希望CSV＋最新台帳＋医師・ドライバー希望")
-    lines.append("> **v0.17: 2026-09-15 大井静子を9/26から9/19鳥越・菅谷の直後へ（別医療機関受診）**")
+    lines.append("> **v0.19: 2026-09-17 仲里路を9/26鳥越・小林誠の直後へ（S井荻・再開）**")
     lines.append(">")
     lines.append("> **ドライバー:** 9/5・7・28＝宮嶋、9/14・19＝上杉、9/26＝石橋")
     lines.append("")
@@ -1837,6 +1858,7 @@ def generate_markdown(
         "**瓦林裕美（b301）** … 8月入院キャンセル分。**9/19鳥越・芳野の直後**（高野台3）。"
         "野上→久我の順。",
         "**大井静子（b199）** … 9/26別医療機関受診のため **9/19鳥越・菅谷の直後**（学2）。",
+        "**仲里路（b428）** … 入院休止後の再開。**9/26鳥越・小林誠の直後**（S井荻）。",
         "**見米和子（b277）** … 9/4クリニック受診（往診リスト対象外）。",
     ]
     for i, n in enumerate(notes, 1):
@@ -1871,6 +1893,7 @@ def generate_markdown(
     lines.append("| b514 | 造酒侚子 | 新規・学園町4-8-4・AM～13:00在宅 | **9/14花輪・今井鈴の直後** |")
     lines.append("| b301 | 瓦林裕美 | 8月入院キャンセル・高野台3 | **9/19鳥越・芳野の直後** |")
     lines.append("| b199 | 大井静子 | 9/26別医療機関受診 | **9/19鳥越・菅谷の直後** |")
+    lines.append("| b428 | 仲里路 | 入院休止後再開・S井荻 | **9/26鳥越・小林誠の直後** |")
     if unassigned:
         lines.append("")
         lines.append("### D. 割当できなかった方（要手動）")
@@ -1903,7 +1926,7 @@ def generate_markdown(
             "9/7(月)": "この日の更新: 2026-09-09　猪熊を片山から外す。清水輝男は大越の直後（白子1-4-3）",
             "9/14(月)": "この日の更新: 2026-09-11　出発10:00（特例）。三上丸子は5番目・11:30以降開始でNG回避",
             "9/19(土)": "この日の更新: 2026-09-15　大井静子を菅谷の直後（5番）に追加。別医療機関受診で9/26から移動",
-            "9/26(土)": "この日の更新: 2026-09-15　大井静子を9/19へ移動。國峯は安田の直前のまま",
+            "9/26(土)": "この日の更新: 2026-09-17　仲里路を小林誠の直後に追加（S井荻・再開）",
             "9/28(月)": "この日の更新: 2026-09-17　越智博を花輪末尾へ（他院訪問11:30帯回避）。香水との入れ替えではない",
         }.get(dk)
         if day_edit:
@@ -2105,6 +2128,10 @@ def generate_markdown(
     lines.append(
         "- 2026-09-17: v0.18 越智博（b271）を9/28花輪の末尾へ"
         "（他院訪問11:30帯との重複回避。香水との入れ替えではない）。"
+    )
+    lines.append(
+        "- 2026-09-17: v0.19 仲里路（b428）を9/26鳥越・小林誠の直後へ"
+        "（S井荻・入院休止後の再開。実働11件）。"
     )
     return "\n".join(lines) + "\n"
 

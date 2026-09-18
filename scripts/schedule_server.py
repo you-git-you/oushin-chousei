@@ -191,7 +191,7 @@ class ScheduleAPIHandler(BaseHTTPRequestHandler):
         if path in ("", "/"):
             file_path = DEFAULT_HTML
         else:
-            rel = path.lstrip("/")
+            rel = unquote(path.lstrip("/"))
             file_path = (EXPORTS / rel).resolve()
             try:
                 file_path.relative_to(EXPORTS.resolve())
