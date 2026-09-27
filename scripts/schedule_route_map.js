@@ -5,8 +5,21 @@
   var TORIGOE_HOME = "東京都練馬区東大泉2-40-8";
   var MISSING = { "（住所未登録）": true, "—": true, "-": true, "": true };
   var geoCache = Object.create(null);
-  var liveMap = null;
-  var liveLayer = null;
+  function blankView(canvas) {
+    return {
+      canvas: canvas,
+      map: null,
+      layer: null,
+      pins: [],
+      dots: [],
+      pinsReady: false,
+      fitting: false,
+      generation: 0,
+      statusEl: null,
+    };
+  }
+
+  var modalView = blankView(null);
   var ROUTE_COLORS = { 花輪: "#2563eb", 片山: "#c2410c", 鳥越: "#047857", 鳥越午前: "#0f766e" };
 
   function qsa(sel, root) {
@@ -87,67 +100,70 @@
     };
   }
 
+  function routeFromBlock(block, dayKey) {
+    var dow = dowFromDayKey(dayKey);
+    var doctor = block.getAttribute("data-doctor") || "";
+    var ep = endpoints(doctor);
+    var missingOrders = [];
+    var patients = [];
+    qsa("tbody tr", block).forEach(function (tr) {
+      if (tr.getAttribute("data-cancelled") === "1") return;
+      if (tr.classList.contains("visit-cancelled")) return;
+      var nameEl = tr.querySelector("td.name strong");
+      var name = nameEl ? nameEl.textContent.trim() : tr.getAttribute("data-patient-name") || "";
+      var orderEl = tr.querySelector("td.order");
+      var order = orderEl ? orderEl.textContent.trim() : "";
+      var etaEl = tr.querySelector("td.eta");
+      var eta = etaEl ? etaEl.textContent.replace(/\s+/g, " ").trim() : "";
+      var raw = "";
+      var addrTd = tr.querySelector("td.addr");
+      if (addrTd) raw = (addrTd.textContent || "").replace(/\s+/g, " ").trim();
+      var addr = addressForVisitDay(raw, dow);
+      if (isMissingAddress(addr)) {
+        missingOrders.push(order ? "#" + order : "不明");
+        return;
+      }
+      patients.push({ name: name, addr: addr, order: order, eta: eta });
+    });
+    var points = [
+      {
+        kind: "start",
+        place: ep.originPlace,
+        when: ep.originWhen,
+        mapNote: ep.originMapNote,
+        addr: ep.origin,
+      },
+    ].concat(
+      patients.map(function (p) {
+        return {
+          kind: "visit",
+          place: p.name,
+          when: p.eta,
+          order: p.order,
+          addr: p.addr,
+          mapNote: "",
+        };
+      })
+    );
+    points.push({
+      kind: "end",
+      place: ep.destPlace,
+      when: ep.destWhen,
+      mapNote: ep.destMapNote,
+      addr: ep.dest,
+    });
+    return {
+      doctor: doctor,
+      missingOrders: missingOrders,
+      points: points,
+      visitCount: patients.length,
+    };
+  }
+
   function collectRoutes(dayCard) {
     var dayKey = dayCard.getAttribute("data-day") || "";
-    var dow = dowFromDayKey(dayKey);
-    var routes = [];
-    qsa(".doctor-block", dayCard).forEach(function (block) {
-      var doctor = block.getAttribute("data-doctor") || "";
-      var ep = endpoints(doctor);
-      var missingOrders = [];
-      var patients = [];
-      qsa("tbody tr", block).forEach(function (tr) {
-        if (tr.getAttribute("data-cancelled") === "1") return;
-        if (tr.classList.contains("visit-cancelled")) return;
-        var nameEl = tr.querySelector("td.name strong");
-        var name = nameEl ? nameEl.textContent.trim() : tr.getAttribute("data-patient-name") || "";
-        var orderEl = tr.querySelector("td.order");
-        var order = orderEl ? orderEl.textContent.trim() : "";
-        var etaEl = tr.querySelector("td.eta");
-        var eta = etaEl ? etaEl.textContent.replace(/\s+/g, " ").trim() : "";
-        var raw = "";
-        var addrTd = tr.querySelector("td.addr");
-        if (addrTd) raw = (addrTd.textContent || "").replace(/\s+/g, " ").trim();
-        var addr = addressForVisitDay(raw, dow);
-        if (isMissingAddress(addr)) {
-          missingOrders.push(order ? "#" + order : "不明");
-          return;
-        }
-        patients.push({ name: name, addr: addr, order: order, eta: eta });
-      });
-      var points = [
-        {
-          kind: "start",
-          place: ep.originPlace,
-          when: ep.originWhen,
-          mapNote: ep.originMapNote,
-          addr: ep.origin,
-        },
-      ].concat(
-        patients.map(function (p) {
-          return {
-            kind: "visit",
-            place: p.name,
-            when: p.eta,
-            order: p.order,
-            addr: p.addr,
-            mapNote: "",
-          };
-        })
-      );
-      points.push({
-        kind: "end",
-        place: ep.destPlace,
-        when: ep.destWhen,
-        mapNote: ep.destMapNote,
-        addr: ep.dest,
-      });
-      routes.push({
-        doctor: doctor,
-        missingOrders: missingOrders,
-        points: points,
-        visitCount: patients.length,
-      });
+    var routes = qsa(".doctor-block", dayCard).map(function (block) {
+      return routeFromBlock(block, dayKey);
     });
     return { dayKey: dayKey, routes: routes };
   }
@@ -212,11 +228,6 @@
       " ／ この瞬間の表の順です。</p>" +
       "</aside>"
     );
-  }
-
-  function setStatus(text) {
-    var el = document.getElementById("route-map-status");
-    if (el) el.textContent = text || "";
   }
 
   function renderList(data) {
@@ -323,10 +334,11 @@
         return geocodeGsi(q);
       });
     }, Promise.resolve(null)).then(function (pt) {
-      geoCache[key] = Promise.resolve(pt);
+      if (pt) geoCache[key] = Promise.resolve(pt);
+      else delete geoCache[key];
       return pt;
     }).catch(function () {
-      geoCache[key] = Promise.resolve(null);
+      delete geoCache[key];
       return null;
     });
     geoCache[key] = job;
@@ -354,8 +366,7 @@
     return next();
   }
 
-  function waitForCanvasSize() {
-    var el = document.getElementById("route-map-canvas");
+  function waitForCanvasSize(el) {
     return new Promise(function (resolve) {
       var n = 0;
       function tick() {
@@ -374,9 +385,12 @@
     });
   }
 
+  var leafletPromise = null;
+
   function loadLeaflet() {
     if (window.L) return Promise.resolve(window.L);
-    return new Promise(function (resolve, reject) {
+    if (leafletPromise) return leafletPromise;
+    leafletPromise = new Promise(function (resolve, reject) {
       var css = document.createElement("link");
       css.rel = "stylesheet";
       css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
@@ -387,43 +401,213 @@
         resolve(window.L);
       };
       s.onerror = function () {
+        leafletPromise = null;
         reject(new Error("leaflet"));
       };
       document.head.appendChild(s);
     });
+    return leafletPromise;
   }
 
-  function ensureMap() {
+  function ensureMap(view) {
     return loadLeaflet().then(function (L) {
-      var el = document.getElementById("route-map-canvas");
+      var el = view.canvas;
       if (!el) throw new Error("canvas");
-      if (liveMap) {
-        liveMap.invalidateSize({ animate: false });
+      if (view.map) {
+        view.map.invalidateSize({ animate: false });
         return L;
       }
-      liveMap = L.map(el, { zoomControl: true, attributionControl: true });
+      view.map = L.map(el, { zoomControl: true, attributionControl: true });
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: "&copy; OpenStreetMap",
-      }).addTo(liveMap);
-      liveMap.setView([35.749, 139.586], 13);
-      liveLayer = L.layerGroup().addTo(liveMap);
+      }).addTo(view.map);
+      view.map.setView([35.749, 139.586], 13);
+      view.layer = L.layerGroup().addTo(view.map);
+      view.map.on("zoomend", function () {
+        if (!view.pinsReady || view.fitting) return;
+        spreadOverlaps(L, view);
+      });
       return L;
     });
   }
 
-  function numberedIcon(L, label, color) {
+  function pinSize(label) {
+    return String(label).length >= 2 ? 36 : 32;
+  }
+
+  function numberedIcon(L, label, color, ox, oy) {
+    var text = String(label);
+    var size = pinSize(text);
+    var shiftX = ox || 0;
+    var shiftY = oy || 0;
+    var stem = "";
+    var reach = Math.sqrt(shiftX * shiftX + shiftY * shiftY);
+    if (reach > 2) {
+      var edge = size / 2;
+      var line = Math.max(0, reach - edge);
+      var deg = (Math.atan2(-shiftY, -shiftX) * 180) / Math.PI;
+      stem =
+        '<span class="map-pin-stem" style="position:absolute;left:50%;top:50%;height:2px;margin-top:-1px;transform-origin:0 50%;pointer-events:none;opacity:.9;width:' +
+        line.toFixed(1) +
+        "px;background:" +
+        color +
+        ";transform:rotate(" +
+        deg.toFixed(1) +
+        "deg) translateX(" +
+        edge.toFixed(1) +
+        'px)"></span>';
+    }
     return L.divIcon({
       className: "map-pin",
       html:
-        '<span class="map-pin-inner" style="background:' +
+        '<span class="map-pin-inner" style="position:relative;box-sizing:border-box;border:2px solid #fff;background:' +
         color +
-        '">' +
-        esc(label) +
+        ";width:" +
+        size +
+        "px;height:" +
+        size +
+        "px;font-size:14px;font-weight:800;line-height:1;transform:translate(" +
+        shiftX +
+        "px," +
+        shiftY +
+        'px)">' +
+        stem +
+        esc(text) +
         "</span>",
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
     });
+  }
+
+  function pinSeq(point, routeIndex) {
+    if (point.kind === "start") return routeIndex * 100;
+    if (point.kind === "end") return routeIndex * 100 + 80;
+    var n = parseInt(point.order, 10);
+    if (!isFinite(n)) n = 40;
+    return routeIndex * 100 + n;
+  }
+
+  function clearAnchorDots(view) {
+    view.dots.forEach(function (dot) {
+      if (view.layer) view.layer.removeLayer(dot);
+    });
+    view.dots = [];
+  }
+
+  function placePinIcon(L, view, pin, ox, oy) {
+    pin.marker.setIcon(numberedIcon(L, pin.label, pin.color, ox, oy));
+    pin.marker.setZIndexOffset(pin.seq);
+    pin.marker.unbindTooltip();
+    pin.marker.bindTooltip(pin.badge, {
+      direction: "top",
+      offset: [ox, oy - pinSize(pin.label) / 2 - 6],
+    });
+    if (Math.abs(ox) + Math.abs(oy) <= 2) return;
+    var dot = L.marker(pin.ll, {
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: pin.seq - 20,
+      icon: L.divIcon({
+        className: "map-pin",
+        html:
+          '<span style="display:block;width:8px;height:8px;border-radius:99px;box-sizing:border-box;background:#fff;border:2px solid ' +
+          pin.color +
+          ';"></span>',
+        iconSize: [8, 8],
+        iconAnchor: [4, 4],
+      }),
+    });
+    view.layer.addLayer(dot);
+    view.dots.push(dot);
+  }
+
+  /* 同じ建物・近接で円が重なる番号だけ、本来の位置から押し広げて全部読めるようにする */
+  function spreadOverlaps(L, view) {
+    if (!view.map || !view.pins.length) return;
+    clearAnchorDots(view);
+    var base = view.pins.map(function (pin) {
+      return view.map.latLngToContainerPoint(pin.ll);
+    });
+    var offsets = view.pins.map(function () {
+      return { x: 0, y: 0 };
+    });
+    var guard = 0;
+    var moved = true;
+    while (moved && guard < 120) {
+      moved = false;
+      guard += 1;
+      for (var i = 0; i < view.pins.length; i++) {
+        for (var j = i + 1; j < view.pins.length; j++) {
+          var need = (pinSize(view.pins[i].label) + pinSize(view.pins[j].label)) / 2 + 6;
+          var ix = base[i].x + offsets[i].x;
+          var iy = base[i].y + offsets[i].y;
+          var jx = base[j].x + offsets[j].x;
+          var jy = base[j].y + offsets[j].y;
+          var dx = jx - ix;
+          var dy = jy - iy;
+          var dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist >= need - 0.25) continue;
+          var ux;
+          var uy;
+          if (dist < 0.5) {
+            var ang = (i + 1) * 2.399963 + (j + 1) * 0.7;
+            ux = Math.cos(ang);
+            uy = Math.sin(ang);
+            dist = 0.5;
+          } else {
+            ux = dx / dist;
+            uy = dy / dist;
+          }
+          var push = (need - dist) / 2;
+          offsets[i].x -= ux * push;
+          offsets[i].y -= uy * push;
+          offsets[j].x += ux * push;
+          offsets[j].y += uy * push;
+          moved = true;
+        }
+      }
+    }
+    view.pins.forEach(function (pin, i) {
+      placePinIcon(L, view, pin, Math.round(offsets[i].x), Math.round(offsets[i].y));
+    });
+  }
+
+  function pinCorners(view) {
+    var pts = [];
+    var mapRect = view.map.getContainer().getBoundingClientRect();
+    view.pins.forEach(function (pin) {
+      var el = pin.marker.getElement();
+      var inner = el && el.querySelector(".map-pin-inner");
+      if (!inner) return;
+      var rect = inner.getBoundingClientRect();
+      var pad = 6;
+      pts.push(
+        view.map.containerPointToLatLng([
+          rect.left - mapRect.left - pad,
+          rect.top - mapRect.top - pad,
+        ])
+      );
+      pts.push(
+        view.map.containerPointToLatLng([
+          rect.right - mapRect.left + pad,
+          rect.bottom - mapRect.top + pad,
+        ])
+      );
+    });
+    return pts;
+  }
+
+  function layoutPins(L, view) {
+    if (!view.map || !view.pins.length) return;
+    view.fitting = true;
+    spreadOverlaps(L, view);
+    var pts = pinCorners(view);
+    if (pts.length && !view.map.getBounds().contains(L.latLngBounds(pts))) {
+      view.map.fitBounds(L.latLngBounds(pts).pad(0.06), { animate: false });
+      spreadOverlaps(L, view);
+    }
+    view.fitting = false;
   }
 
   function fetchDriving(latlngs) {
@@ -454,24 +638,45 @@
       });
   }
 
-  function drawRoutes(L, routes) {
-    if (liveLayer) liveLayer.clearLayers();
+  function drawRoutes(L, routes, view) {
+    var generation = view.generation;
+    view.pinsReady = false;
+    view.pins = [];
+    clearAnchorDots(view);
+    if (view.layer) view.layer.clearLayers();
     var allLatLngs = [];
-    var jobs = routes.map(function (route) {
+    var jobs = routes.map(function (route, routeIndex) {
       var color = ROUTE_COLORS[route.doctor] || "#334155";
       return geocodePoints(route.points).then(function (located) {
+        if (generation !== view.generation) {
+          return { ok: 0, missed: 0 };
+        }
         var latlngs = [];
         located.forEach(function (item) {
           if (!item.latlng) return;
           var ll = L.latLng(item.latlng.lat, item.latlng.lon);
           latlngs.push(ll);
           allLatLngs.push(ll);
+          var label = markerLabel(item.point);
           var marker = L.marker(ll, {
-            icon: numberedIcon(L, markerLabel(item.point), color),
+            icon: numberedIcon(L, label, color, 0, 0),
             keyboard: false,
+            zIndexOffset: pinSeq(item.point, routeIndex),
           });
-          marker.bindTooltip(kindMeta(item.point).badge, { direction: "top" });
-          liveLayer.addLayer(marker);
+          var badge = kindMeta(item.point).badge;
+          marker.bindTooltip(badge, {
+            direction: "top",
+            offset: [0, -12],
+          });
+          view.layer.addLayer(marker);
+          view.pins.push({
+            marker: marker,
+            ll: ll,
+            label: label,
+            color: color,
+            seq: pinSeq(item.point, routeIndex),
+            badge: badge,
+          });
         });
         if (latlngs.length < 2) {
           return { ok: latlngs.length, missed: located.length - latlngs.length };
@@ -482,14 +687,17 @@
           }),
           { color: color, weight: 5, opacity: 0.7, dashArray: "8 8" }
         );
-        liveLayer.addLayer(straight);
-        if (allLatLngs.length && liveMap) {
-          liveMap.fitBounds(L.latLngBounds(allLatLngs).pad(0.18));
+        view.layer.addLayer(straight);
+        if (allLatLngs.length && view.map) {
+          view.map.fitBounds(L.latLngBounds(allLatLngs).pad(0.22), { animate: false });
         }
         return fetchDriving(latlngs).then(function (line) {
+          if (generation !== view.generation) {
+            return { ok: latlngs.length, missed: located.length - latlngs.length };
+          }
           if (line) {
-            liveLayer.removeLayer(straight);
-            liveLayer.addLayer(
+            view.layer.removeLayer(straight);
+            view.layer.addLayer(
               L.polyline(line, {
                 color: color,
                 weight: 5,
@@ -502,9 +710,14 @@
       });
     });
     return Promise.all(jobs).then(function (stats) {
-      if (allLatLngs.length && liveMap) {
-        liveMap.fitBounds(L.latLngBounds(allLatLngs).pad(0.18));
-        liveMap.invalidateSize({ animate: false });
+      if (generation !== view.generation) {
+        return { ok: 0, missed: 0, stale: true };
+      }
+      if (allLatLngs.length && view.map) {
+        view.map.fitBounds(L.latLngBounds(allLatLngs).pad(0.22), { animate: false });
+        view.map.invalidateSize({ animate: false });
+        view.pinsReady = true;
+        layoutPins(L, view);
       }
       var ok = 0;
       var missed = 0;
@@ -517,6 +730,11 @@
     });
   }
 
+  function setViewStatus(view, text) {
+    var el = view.statusEl;
+    if (el) el.textContent = text || "";
+  }
+
   function openForDay(dayId) {
     var card = document.getElementById(dayId);
     var modal = document.getElementById("route-map-modal");
@@ -524,43 +742,122 @@
     var data = collectRoutes(card);
     renderList(data);
     modal.hidden = false;
-    setStatus("地図を準備しています…");
-    waitForCanvasSize()
-      .then(ensureMap)
+    modalView.canvas = document.getElementById("route-map-canvas");
+    modalView.statusEl = document.getElementById("route-map-status");
+    modalView.generation += 1;
+    setViewStatus(modalView, "地図を準備しています…");
+    waitForCanvasSize(modalView.canvas)
+      .then(function () {
+        return ensureMap(modalView);
+      })
       .then(function (L) {
-        if (liveMap) liveMap.invalidateSize({ animate: false });
-        setStatus("停留所を地図に載せています…");
-        return drawRoutes(L, data.routes);
+        if (modalView.map) modalView.map.invalidateSize({ animate: false });
+        setViewStatus(modalView, "停留所を地図に載せています…");
+        return drawRoutes(L, data.routes, modalView);
       })
       .then(function (stats) {
-        if (liveMap) liveMap.invalidateSize({ animate: false });
+        if (stats && stats.stale) return;
+        if (modalView.map && window.L && modalView.pinsReady) {
+          modalView.map.invalidateSize({ animate: false });
+          layoutPins(window.L, modalView);
+        }
         if (!stats || !stats.ok) {
-          setStatus("停留所を地図に載せられませんでした。ネット接続を確認してください。");
+          setViewStatus(modalView, "停留所を地図に載せられませんでした。ネット接続を確認してください。");
           return;
         }
         if (stats.missed) {
-          setStatus("一部の住所は地図に載せられませんでした（" + stats.missed + "件）。");
+          setViewStatus(
+            modalView,
+            "一部の住所は地図に載せられませんでした（" + stats.missed + "件）。"
+          );
           return;
         }
-        setStatus("");
+        setViewStatus(modalView, "");
       })
       .catch(function () {
-        setStatus("地図を読み込めませんでした。ネット接続を確認してください。");
+        setViewStatus(modalView, "地図を読み込めませんでした。ネット接続を確認してください。");
       });
   }
 
   function close() {
     var modal = document.getElementById("route-map-modal");
     var body = document.getElementById("route-map-modal-body");
-    if (liveLayer) liveLayer.clearLayers();
+    modalView.generation += 1;
+    modalView.pinsReady = false;
+    modalView.pins = [];
+    clearAnchorDots(modalView);
+    if (modalView.layer) modalView.layer.clearLayers();
     if (body) body.innerHTML = "";
-    setStatus("");
+    setViewStatus(modalView, "");
     if (modal) modal.hidden = true;
+  }
+
+  function paintInline(view, block) {
+    var dayCard = block.closest(".day-card");
+    var dayKey = dayCard ? dayCard.getAttribute("data-day") || "" : "";
+    var route = routeFromBlock(block, dayKey);
+    view.generation += 1;
+    setViewStatus(view, "停留所を地図に載せています…");
+    return waitForCanvasSize(view.canvas)
+      .then(function () {
+        return ensureMap(view);
+      })
+      .then(function (L) {
+        if (view.map) view.map.invalidateSize({ animate: false });
+        return drawRoutes(L, [route], view);
+      })
+      .then(function (stats) {
+        if (stats && stats.stale) return;
+        try {
+          if (view.map && window.L && view.pinsReady) {
+            view.map.invalidateSize({ animate: false });
+            layoutPins(window.L, view);
+          }
+        } catch (err) {
+          setViewStatus(view, "地図の表示を調整できませんでした。");
+          return;
+        }
+        if (!stats || !stats.ok) {
+          setViewStatus(view, "停留所を地図に載せられませんでした。ネット接続を確認してください。");
+          return;
+        }
+        if (stats.missed) {
+          setViewStatus(view, "一部の住所は地図に載せられませんでした（" + stats.missed + "件）。");
+          return;
+        }
+        setViewStatus(view, "");
+      })
+      .catch(function () {
+        setViewStatus(view, "地図を読み込めませんでした。ネット接続を確認してください。");
+      });
+  }
+
+  function mountInlineMaps() {
+    var chain = Promise.resolve();
+    qsa(".inline-route-map").forEach(function (canvas) {
+      var block = canvas.closest(".doctor-block");
+      if (!block || block._routeMapView) return;
+      var view = blankView(canvas);
+      var wrap = canvas.parentNode;
+      view.statusEl = wrap ? wrap.querySelector(".map-status") : null;
+      block._routeMapView = view;
+      chain = chain.then(function () {
+        return paintInline(view, block);
+      });
+    });
+  }
+
+  function refreshCard(card) {
+    if (!card) return;
+    qsa(".doctor-block", card).forEach(function (block) {
+      if (block._routeMapView) paintInline(block._routeMapView, block);
+    });
   }
 
   window.OusehinRouteMap = {
     one: openForDay,
     close: close,
+    refreshCard: refreshCard,
   };
 
   document.addEventListener("click", function (ev) {
@@ -570,4 +867,10 @@
       close();
     }
   });
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", mountInlineMaps);
+  } else {
+    mountInlineMaps();
+  }
 })();

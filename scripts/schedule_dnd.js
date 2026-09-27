@@ -473,6 +473,9 @@
       syncDayChips(card);
       syncDayTsv(card);
       updateDayMeta(card);
+      if (window.OusehinRouteMap && window.OusehinRouteMap.refreshCard) {
+        window.OusehinRouteMap.refreshCard(card);
+      }
     });
     syncAllTsv();
     syncSummary();

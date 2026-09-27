@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""8月往診リスト Markdown → 単一HTML（コピー用TSV付き）"""
+"""10月往診リスト Markdown → 単一HTML（コピー用TSV付き）"""
 
 from __future__ import annotations
 
@@ -17,42 +17,25 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 from common import address_for_visit_day
-from visit_cautions import DAY_VISIT_CAUTIONS
-
-
-def render_day_cautions(day_key: str) -> str:
-    items = DAY_VISIT_CAUTIONS.get(day_key) or []
-    if not items:
-        return ""
-    blocks = []
-    for c in items:
-        img = ""
-        if c.get("image"):
-            img = (
-                f'<img class="visit-caution-img" src="{html.escape(c["image"])}" '
-                f'alt="{html.escape(c["title"])}">'
-            )
-        blocks.append(
-            f"""
-        <aside class="visit-caution" data-patient-id="{html.escape(c['id'])}">
-          <h3>往診時の注意点｜{html.escape(c['name'])}（{html.escape(c['id'])}）</h3>
-          <p class="visit-caution-title">{html.escape(c['title'])}</p>
-          <p>{html.escape(c['body'])}</p>
-          {img}
-        </aside>"""
-        )
-    return "".join(blocks)
+from ledger_csv import find_latest_ledger_csv
 
 ROOT = SCRIPTS.parent
-MD_PATH = ROOT / "exports/8月往診リスト_2026.md"
-OUT_PATH = ROOT / "exports/8月往診リスト_2026.html"
-CONSTRAINTS_PATH = ROOT / "exports/patient_constraints.json"
-OVERRIDES_PATH = ROOT / "exports/schedule_overrides.json"
-HOPE_CSV = ROOT / "🚙🚕🚗往診周り順👴🏻👴👴🏼suzuki - 8月往診日希望 (1).csv"
-LEDGER_CSV = ROOT / "★台帳（訪問）★ 編集用-2026-08-25 - 編集用（介護）.csv"
+MD_PATH = ROOT / "exports/10月往診リスト_2026.md"
+OUT_PATH = ROOT / "exports/10月往診リスト_2026.html"
+CONSTRAINTS_PATH = ROOT / "exports/october_patient_constraints.json"
+OVERRIDES_PATH = ROOT / "exports/october_schedule_overrides.json"
+HOPE_CSV = ROOT / "🚙🚕🚗往診周り順👴🏻👴👴🏼suzuki - 10月往診日・希望.csv"
+LEDGER_CSV = find_latest_ledger_csv() or (
+    ROOT / "★台帳（訪問）★ 編集用 - 編集用（介護） (6).csv"
+)
 
-DAY_RE = re.compile(r"^## (8/\d+\([月土]\))$")
-DOC_RE = re.compile(r"^### (花輪|片山)先生|### 鳥越先生")
+# 台帳・希望CSV未掲載のふりがな
+KANA_OVERRIDES: dict[str, str] = {
+    "b514": "みき じゅんこ",
+}
+
+DAY_RE = re.compile(r"^## (10/\d+\([月土]\))$")
+DOC_RE = re.compile(r"^### (花輪|片山|鳥越)先生")
 ROUTE_RE = re.compile(r"^\*\*動線（エリア順）:\*\* (.+)$")
 
 
@@ -111,7 +94,7 @@ def normalize_md_lines(text: str) -> list[str]:
 
 def parse_md(text: str) -> dict:
     lines = normalize_md_lines(text)
-    meta = {"title": "8月往診リスト（2026年）", "subtitle": "", "version": ""}
+    meta = {"title": "10月往診リスト（2026年）", "subtitle": "", "version": ""}
     if lines and lines[0].startswith("# "):
         meta["title"] = lines[0][2:].strip()
     for line in lines[:8]:
@@ -123,18 +106,38 @@ def parse_md(text: str) -> dict:
     summary_rows: list[list[str]] = []
     patient_rows: list[list[str]] = []
     changelog: list[str] = []
+    excluded_rows: list[list[str]] = []
+    out_of_scope_rows: list[list[str]] = []
     days: list[dict] = []
 
     in_summary = False
     in_patients = False
     in_changelog = False
+    in_excluded = False
+    in_out_of_scope = False
     cur_day: dict | None = None
     cur_doc: dict | None = None
 
     for i, raw in enumerate(lines):
         line = raw.rstrip()
+        if line.startswith("## 対象外"):
+            in_out_of_scope = True
+            in_excluded = False
+            in_changelog = False
+            in_summary = False
+            in_patients = False
+            continue
+        if line.startswith("## 休止・中止"):
+            in_excluded = True
+            in_out_of_scope = False
+            in_changelog = False
+            in_summary = False
+            in_patients = False
+            continue
         if line == "## 変更履歴":
             in_changelog = True
+            in_excluded = False
+            in_out_of_scope = False
             in_summary = False
             in_patients = False
             continue
@@ -145,6 +148,22 @@ def parse_md(text: str) -> dict:
                 changelog.append(line[2:].strip())
                 continue
             else:
+                continue
+        if in_out_of_scope:
+            if line.startswith("## ") and not line.startswith("## 対象外"):
+                in_out_of_scope = False
+            else:
+                row = parse_table_row(line)
+                if row and len(row) >= 6 and row[1].startswith("b"):
+                    out_of_scope_rows.append(row)
+                continue
+        if in_excluded:
+            if line.startswith("## ") and not line.startswith("## 休止・中止"):
+                in_excluded = False
+            else:
+                row = parse_table_row(line)
+                if row and len(row) >= 5 and row[1].startswith("b"):
+                    excluded_rows.append(row)
                 continue
         if line == "## 日別件数サマリー":
             in_summary = True
@@ -161,7 +180,7 @@ def parse_md(text: str) -> dict:
 
         if in_summary:
             row = parse_table_row(line)
-            if row and row[0].startswith("8/"):
+            if row and row[0].startswith("9/"):
                 summary_rows.append(row)
 
         if in_patients:
@@ -198,7 +217,9 @@ def parse_md(text: str) -> dict:
 
         dm = DOC_RE.match(line)
         if dm and cur_day:
-            doc_name = "鳥越" if "鳥越" in line else dm.group(1)
+            doc_name = dm.group(1)
+            if doc_name == "鳥越" and "午前" in line and "午後" not in line:
+                doc_name = "鳥越午前"
             cur_doc = {"name": doc_name, "header": line.replace("### ", ""), "visits": []}
             cur_day["doctors"].append(cur_doc)
             continue
@@ -238,6 +259,8 @@ def parse_md(text: str) -> dict:
         "summary": summary_rows,
         "patients": patient_rows,
         "changelog": changelog,
+        "excluded": excluded_rows,
+        "out_of_scope": out_of_scope_rows,
         "days": days,
     }
 
@@ -406,23 +429,25 @@ def parse_depart_from_header(header: str, doctor: str) -> str:
 
 
 def format_day_ja(day_key: str) -> str:
-    """8/3(月) → 8月3日（月）"""
-    m = re.match(r"8/(\d+)\(([月土])\)", day_key)
+    """9/7(月) → 9月7日（月）"""
+    m = re.match(r"(\d+)/(\d+)\(([月土])\)", day_key)
     if not m:
         return day_key
-    return f"8月{int(m.group(1))}日（{m.group(2)}）"
+    return f"{int(m.group(1))}月{int(m.group(2))}日（{m.group(3)}）"
 
 
-def doctor_slot_label(doctor: str) -> str:
+def doctor_slot_label(doctor: str, depart: str = "") -> str:
     if doctor == "花輪":
         return "午前"
     if doctor == "片山":
         return "午後"
+    if (depart or "").startswith("12:30"):
+        return "午後（12:30〜16:30）"
     return "午後（13:00〜16:30）"
 
 
 def day_sort_key(day_key: str) -> tuple[int, str]:
-    m = re.match(r"8/(\d+)", day_key)
+    m = re.match(r"\d+/(\d+)", day_key)
     return (int(m.group(1)) if m else 99, day_key)
 
 
@@ -485,7 +510,7 @@ def visit_display_name(v: dict, kana_by_id: dict[str, str]) -> str:
 
 def doctor_sort_key(doctor: str) -> int:
     """同日に午前・午後があるとき花輪→片山→鳥越の順。"""
-    return {"花輪": 0, "片山": 1, "鳥越": 2}.get(doctor, 9)
+    return {"花輪": 0, "片山": 1, "鳥越午前": 2, "鳥越": 3}.get(doctor, 9)
 
 
 CLINIC_RETURN_ADDRESS = "〒178-0063 東京都練馬区東大泉1-28-7 フォンターナ琴坂 6F"
@@ -544,9 +569,10 @@ def build_transport_section(
         elif doctor == "片山":
             lines.append(f"・お迎え：{KATAYAMA_PICKUP_ADDRESS}（{depart}）")
             lines.append("・お送り：片山先生ご自宅まで")
-        elif doctor == "鳥越":
+        elif doctor.startswith("鳥越"):
+            home_note = "（帰宅目安16:30）" if doctor == "鳥越" else "（午前終了後いったんご自宅へ）"
             lines.append(f"・お迎え：鳥越先生ご自宅（{depart}）")
-            lines.append("・お送り：鳥越先生ご自宅まで（帰宅目安16:30）")
+            lines.append(f"・お送り：鳥越先生ご自宅まで{home_note}")
         else:
             lines.append(f"・出発：{depart}")
         return "\n".join(lines) + "\n"
@@ -564,9 +590,10 @@ def build_transport_section(
     elif doctor == "片山":
         lines.append(f"・お迎え／出発：{KATAYAMA_PICKUP_ADDRESS}（{depart}）")
         lines.append(f"・お送り：片山先生ご自宅（{KATAYAMA_HOME}）へお返し")
-    elif doctor == "鳥越":
+    elif doctor.startswith("鳥越"):
+        home_note = "（帰宅目安16:30）" if doctor == "鳥越" else "（午前終了後いったんご自宅へ。午後13:00再出発）"
         lines.append(f"・お迎え／出発：鳥越先生ご自宅（{TORIGOE_HOME}）（{depart}）")
-        lines.append(f"・お送り：鳥越先生ご自宅（{TORIGOE_HOME}）へお返し（帰宅目安16:30）")
+        lines.append(f"・お送り：鳥越先生ご自宅（{TORIGOE_HOME}）へお返し{home_note}")
     else:
         lines.append(f"・出発：{depart}")
     return "\n".join(lines) + "\n"
@@ -586,7 +613,7 @@ def build_route_mail_body(
     """(件名, 本文) を返す。kind は driver|doctor。氏名はひらがな名字＋伏せ字のみ。"""
     day_ja = format_day_ja(day_key)
     n = len(visits)
-    slot = doctor_slot_label(doctor)
+    slot = doctor_slot_label(doctor, depart)
 
     news: list[str] = []
     mynas: list[str] = []
@@ -633,7 +660,7 @@ def build_route_mail_body(
         intro = (
             f"{to_line}\n\n"
             "お世話になっております。\n"
-            "8月の往診予定が決定いたしましたので、ご連絡いたします。\n"
+            "10月の往診予定が決定いたしましたので、ご連絡いたします。\n"
             f"{day_ja}分のご予定です（{n}名）。\n"
         )
         assign = (
@@ -696,19 +723,19 @@ def build_bulk_mail_body(group: str, kind: str, day_cards: list[dict]) -> tuple[
     n_days = len(uniq_days)
     if kind == "driver":
         to_line = group if group.endswith("様") else format_driver_recipient(group.replace("さん", ""))
-        subject = f"【往診送迎】8月分まとめ（{n_days}日）"
+        subject = f"【往診送迎】10月分まとめ（{n_days}日）"
         intro = (
             f"{to_line}\n\n"
             "お世話になっております。\n"
-            f"8月の往診送迎について、{n_days}日分まとめてご連絡です（{days_ja}）。\n"
+            f"10月の往診送迎について、{n_days}日分まとめてご連絡です（{days_ja}）。\n"
         )
     else:
         to_line = group if group.endswith("先生") else f"{group}先生"
-        subject = f"【往診予定】8月分まとめ（{n_days}日）"
+        subject = f"【往診予定】10月分まとめ（{n_days}日）"
         intro = (
             f"{to_line}\n\n"
             "お世話になっております。\n"
-            "8月の往診予定が決定いたしましたので、ご連絡いたします。\n"
+            "10月の往診予定が決定いたしましたので、ご連絡いたします。\n"
             f"{n_days}日分（{days_ja}）をまとめてお送りいたしますので、ご確認ください。\n"
         )
 
@@ -869,9 +896,11 @@ def load_kana_by_chart_id() -> dict[str, str]:
     if HOPE_CSV.exists():
         with HOPE_CSV.open(encoding="utf-8-sig", newline="") as f:
             for row in csv.DictReader(f):
-                pid = (row.get("ID") or "").strip()
-                kana = (row.get("ふりがな") or "").strip()
-                if pid:
+                pid = (row.get("id") or row.get("ID") or "").strip()
+                if pid == "b075":
+                    pid = "b75"
+                kana = (row.get("フリガナ") or row.get("ふりがな") or "").strip()
+                if pid and kana:
                     out[pid] = kana
     if LEDGER_CSV.exists():
         with LEDGER_CSV.open(encoding="utf-8-sig", newline="") as f:
@@ -888,8 +917,10 @@ def load_kana_by_chart_id() -> dict[str, str]:
                         continue
                     pid = (row[i_id] or "").strip()
                     kana = (row[i_kana] or "").strip()
-                    if pid and pid not in out and kana:
+                    if pid and kana and not out.get(pid):
                         out[pid] = kana
+    for pid, kana in KANA_OVERRIDES.items():
+        out[pid] = kana
     return out
 
 
@@ -913,6 +944,25 @@ def build_search_index(data: dict, kana_by_id: dict[str, str]) -> list[dict]:
                         "order": v["order"],
                     }
                 )
+    for row in data.get("out_of_scope") or []:
+        if len(row) < 2 or not str(row[1]).startswith("b"):
+            continue
+        pid = row[1]
+        doctor = row[3] if len(row) > 3 else ""
+        if pid not in entries:
+            entries[pid] = {
+                "id": pid,
+                "name": row[0],
+                "kana": kana_by_id.get(pid, ""),
+                "visits": [],
+            }
+        entries[pid]["visits"].append(
+            {
+                "day": "対象外",
+                "doctor": doctor or "対象外",
+                "order": "—",
+            }
+        )
     for row in data["patients"]:
         if len(row) < 2:
             continue
@@ -966,6 +1016,63 @@ def render_html(
       <h2 class="no-print">変更履歴</h2>
       <p class="changelog-updated">リスト最終更新: {updated_at_html}</p>
       <ol class="changelog-list">{changelog_lis}</ol>
+    </section>"""
+
+    excluded_items = data.get("excluded") or []
+    out_of_scope_items = list(data.get("out_of_scope") or [])
+    if not out_of_scope_items:
+        kept: list[list[str]] = []
+        for row in excluded_items:
+            if len(row) >= 4 and row[3] == "対象外":
+                # 旧MD: 氏名 ID 区分 対象外 理由
+                out_of_scope_items.append(
+                    [row[0], row[1], row[2], "—", "別枠", "—", "—", "—", row[4] if len(row) > 4 else ""]
+                )
+            else:
+                kept.append(row)
+        excluded_items = kept
+    kind_class = {
+        "終了": "kind-end",
+        "入院": "kind-admit",
+        "休止": "kind-pause",
+        "対象外": "kind-out",
+        "除外": "kind-drop",
+    }
+    excluded_trs = []
+    for row in excluded_items:
+        name, pid, insurance, kind, reason = row[0], row[1], row[2], row[3], row[4]
+        kc = kind_class.get(kind, "kind-drop")
+        excluded_trs.append(
+            "<tr>"
+            f"<td>{html.escape(name)}</td>"
+            f"<td class='id'>{html.escape(pid)}</td>"
+            f"<td>{html.escape(insurance)}</td>"
+            f"<td><span class='kind-badge {kc}'>{html.escape(kind)}</span></td>"
+            f"<td class='reason'>{html.escape(reason)}</td>"
+            "</tr>"
+        )
+    excluded_tbody = "".join(excluded_trs) or (
+        "<tr><td colspan='5'>非掲載の方はいません。</td></tr>"
+    )
+    excluded_html = f"""
+    <section class="changelog-sheet excluded-sheet" id="sheet-excluded" hidden>
+      <div class="print-sheet-title print-only">
+        <span class="print-updated-at print-only">最終更新: {updated_at_html}</span>
+        <span class="print-doc-title">{html.escape(meta['title'])}</span>
+        <span class="print-day">休止・中止</span>
+        <span class="print-meta">リスト非掲載 {len(excluded_items)}名</span>
+      </div>
+      <h2 class="no-print">休止・中止</h2>
+      <p class="changelog-updated">希望CSVにいるが、日別ルートに載せていない方です。最終更新: {updated_at_html}</p>
+      <p class="excluded-count">計 {len(excluded_items)}名</p>
+      <div class="table-wrap">
+        <table class="excluded-table">
+          <thead>
+            <tr><th>氏名</th><th>ID</th><th>区分</th><th>分類</th><th>理由</th></tr>
+          </thead>
+          <tbody>{excluded_tbody}</tbody>
+        </table>
+      </div>
     </section>"""
     summary_html = ""
     for row in data["summary"]:
@@ -1099,7 +1206,83 @@ def render_html(
           <div class="chip-row no-print">{chips}</div>
           {blocks}
           {route}
-          {render_day_cautions(d["key"])}
+        </article>"""
+
+    out_scope_rows_html = []
+    for i, row in enumerate(out_of_scope_items, start=1):
+        while len(row) < 9:
+            row = row + [""]
+        name, pid, insurance, doctor, slot, eta, how, addr, note = row[:9]
+        name_core = kanji_name_html(name, kana_by_id.get(pid, ""))
+        dc = doctor_class(doctor) if doctor and doctor != "—" else ""
+        out_scope_rows_html.append(
+            "<tr "
+            f'class="{dc}" data-patient-id="{html.escape(pid)}" '
+            f'data-patient-name="{html.escape(name)}" data-day="対象外" '
+            f'data-doctor="{html.escape(doctor)}" data-cancelled="0">'
+            f'<td class="order">{i}</td>'
+            f'<td class="name">{name_core}<br><span class="id">{html.escape(pid)}</span></td>'
+            f"<td>{html.escape(insurance)}</td>"
+            f"<td>{html.escape(doctor)}</td>"
+            f"<td>{html.escape(slot)}</td>"
+            f'<td class="eta">{html.escape(eta)}</td>'
+            f'<td class="flags">{html.escape(how or "—")}</td>'
+            f'<td class="addr">{html.escape(addr or "—")}</td>'
+            f'<td class="note">{html.escape(note)}</td>'
+            "</tr>"
+        )
+    out_scope_tbody = "".join(out_scope_rows_html) or (
+        "<tr><td colspan='9'>対象外の往診はありません。</td></tr>"
+    )
+    out_scope_chips = ""
+    for i, row in enumerate(out_of_scope_items, start=1):
+        while len(row) < 4:
+            row = row + [""]
+        name, pid, _ins, doctor = row[0], row[1], row[2], row[3]
+        dc = doctor_class(doctor) if doctor and doctor != "—" else ""
+        out_scope_chips += f"""
+            <span class="chip {dc}" title="{html.escape(pid)}">
+              {html.escape(name)} <small>{html.escape(doctor or "対象外")}</small>
+            </span>"""
+    out_scope_tsv = "\n".join(
+        "\t".join(
+            (row + [""] * 9)[:9]
+        )
+        for row in out_of_scope_items
+    )
+    out_of_scope_html = f"""
+        <article class="out-of-scope-card" id="day-outofscope" data-day="対象外">
+          <div class="print-sheet-title print-only">
+            <span class="print-updated-at print-only">最終更新: {updated_at_html}</span>
+            <span class="print-doc-title">{html.escape(meta['title'])}</span>
+            <span class="print-day">対象外</span>
+            <span class="print-meta">月土ルート外 {len(out_of_scope_items)}名</span>
+          </div>
+          <header class="day-header" id="day-outofscope-head">
+            <h2>対象外</h2>
+            <div class="day-actions no-print">
+              <button type="button" class="copy-btn secondary" data-target="tsv-day-outofscope" data-label="対象外">この枠をコピー</button>
+              <button type="button" class="print-btn" data-print-day="day-outofscope" data-label="対象外" onclick="OusehinPrint.one('day-outofscope'); return false;">この枠を印刷（A4）</button>
+            </div>
+          </header>
+          <p class="day-edit-note">月土の往診ルートには載せないが、別枠（火金の院長休憩など）で往診する方です。</p>
+          <textarea id="tsv-day-outofscope" class="tsv-store" readonly aria-hidden="true">{html.escape(out_scope_tsv)}</textarea>
+          <div class="chip-row no-print">{out_scope_chips}</div>
+          <section class="doctor-block hanawa">
+            <div class="doctor-head">
+              <h3>対象外（月土ルート外・要往診）｜{len(out_of_scope_items)}名</h3>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th class="order-h">#</th><th>氏名</th><th>区分</th><th>医師</th><th>実施枠</th><th>予定</th><th>特記</th><th>住所</th><th>備考</th>
+                  </tr>
+                </thead>
+                <tbody>{out_scope_tbody}</tbody>
+              </table>
+            </div>
+          </section>
         </article>"""
 
     return f"""<!DOCTYPE html>
@@ -1122,46 +1305,15 @@ def render_html(
       }}
       function prepareClone(node) {{
         var clone = node.cloneNode(true);
-        clone.removeAttribute('hidden');
-        clone.hidden = false;
         clone.querySelectorAll('.no-print, .copy-btn, .tsv-store').forEach(function(el) {{
           el.remove();
         }});
+        clone.removeAttribute('hidden');
+        clone.hidden = false;
         clone.querySelectorAll('.print-only').forEach(function(el) {{
           el.style.display = 'block';
         }});
-        var srcImgs = node.querySelectorAll('img');
-        var dstImgs = clone.querySelectorAll('img');
-        for (var i = 0; i < dstImgs.length; i++) {{
-          dstImgs[i].src = srcImgs[i].currentSrc || srcImgs[i].src;
-        }}
         return clone;
-      }}
-      function whenImagesReady(doc, done) {{
-        var finished = false;
-        var finish = function() {{
-          if (finished) return;
-          finished = true;
-          done();
-        }};
-        var imgs = Array.prototype.slice.call(doc.images || []);
-        if (!imgs.length) {{
-          finish();
-          return;
-        }}
-        var left = imgs.length;
-        var tick = function() {{
-          left -= 1;
-          if (left <= 0) finish();
-        }};
-        imgs.forEach(function(img) {{
-          if (img.complete) tick();
-          else {{
-            img.addEventListener('load', tick);
-            img.addEventListener('error', tick);
-          }}
-        }});
-        setTimeout(finish, 4000);
       }}
       function printNodes(nodes, bodyClass) {{
         bodyClass = bodyClass || '';
@@ -1181,17 +1333,15 @@ def render_html(
         nodes.forEach(function(n) {{
           doc.body.appendChild(prepareClone(n));
         }});
+        win.focus();
         if (window.showToast) {{
           window.showToast('印刷ダイアログを開きます（背面に出る場合があります）');
         }}
-        whenImagesReady(doc, function() {{
-          win.focus();
-          try {{
-            win.print();
-          }} catch (err) {{
-            alert('印刷ダイアログを開けませんでした。Chrome または Safari でこのファイルを開き、⌘P（印刷）をお試しください。');
-          }}
-        }});
+        try {{
+          win.print();
+        }} catch (err) {{
+          alert('印刷ダイアログを開けませんでした。Chrome または Safari でこのファイルを開き、⌘P（印刷）をお試しください。');
+        }}
         setTimeout(function() {{ iframe.remove(); }}, 120000);
       }}
       return {{
@@ -1201,6 +1351,14 @@ def render_html(
           if (!cards.length) {{
             window.print();
             return;
+          }}
+          var extra = document.getElementById('day-outofscope');
+          if (extra) {{
+            cards = cards.concat([extra]);
+          }}
+          var excl = document.getElementById('sheet-excluded');
+          if (excl) {{
+            cards = cards.concat([excl]);
           }}
           var logEl = document.getElementById('sheet-changelog');
           if (logEl) {{
@@ -1846,6 +2004,18 @@ def render_html(
       border-color: #fff;
       color: #fff;
     }}
+    .nav-days a.nav-out-of-scope {{
+      background: #fde68a;
+      color: #78350f;
+      border-color: #fbbf24;
+      font-weight: 700;
+      cursor: pointer;
+    }}
+    .nav-days a.nav-out-of-scope:hover {{
+      background: #fcd34d;
+      color: #78350f;
+      border-color: #f59e0b;
+    }}
     .api-status {{
       margin: .35rem 0 0;
       font-size: .75rem;
@@ -1883,6 +2053,48 @@ def render_html(
       line-height: 1.5;
     }}
     .changelog-list li {{ margin: .55rem 0; }}
+    .excluded-count {{
+      margin: 0 0 .75rem;
+      font-size: .9rem;
+      color: var(--muted);
+    }}
+    .excluded-table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .92rem;
+    }}
+    .excluded-table th,
+    .excluded-table td {{
+      border-bottom: 1px solid var(--border);
+      padding: .45rem .5rem;
+      text-align: left;
+      vertical-align: top;
+    }}
+    .excluded-table th {{
+      font-size: .78rem;
+      color: var(--muted);
+      font-weight: 600;
+    }}
+    .excluded-table td.id {{
+      font-family: ui-monospace, monospace;
+      white-space: nowrap;
+    }}
+    .excluded-table td.reason {{
+      line-height: 1.45;
+    }}
+    .kind-badge {{
+      display: inline-block;
+      border-radius: 999px;
+      padding: .12rem .55rem;
+      font-size: .75rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+    .kind-end {{ background: #fee2e2; color: #991b1b; }}
+    .kind-admit {{ background: #ffedd5; color: #9a3412; }}
+    .kind-pause {{ background: #fef3c7; color: #92400e; }}
+    .kind-out {{ background: #e0e7ff; color: #3730a3; }}
+    .kind-drop {{ background: #e2e8f0; color: #334155; }}
     .chip.cancelled {{
       text-decoration: line-through;
       opacity: .65;
@@ -1935,34 +2147,6 @@ def render_html(
       color: #065f46;
       font-size: .82rem;
     }}
-    .visit-caution {{
-      margin: .75rem 1.25rem 1.1rem;
-      padding: .75rem 1rem 1rem;
-      background: #fffbeb;
-      border: 1px solid #fbbf24;
-      border-radius: 10px;
-    }}
-    .visit-caution h3 {{
-      margin: 0 0 .35rem;
-      font-size: .95rem;
-      color: #92400e;
-    }}
-    .visit-caution-title {{
-      margin: 0 0 .35rem;
-      font-weight: 700;
-    }}
-    .visit-caution p {{
-      margin: 0 0 .6rem;
-      font-size: .88rem;
-      line-height: 1.45;
-    }}
-    .visit-caution-img {{
-      display: block;
-      max-width: 100%;
-      height: auto;
-      border-radius: 8px;
-      border: 1px solid #fde68a;
-    }}
     table.summary {{ width: 100%; border-collapse: collapse; font-size: .9rem; }}
     table.summary th, table.summary td {{
       padding: .45rem .5rem;
@@ -1995,6 +2179,19 @@ def render_html(
       border: 1px solid var(--border);
       margin-bottom: 1.5rem;
       overflow: hidden;
+    }}
+    .out-of-scope-card {{
+      background: var(--card);
+      border-radius: 14px;
+      border: 1px solid #fbbf24;
+      margin-bottom: 1.5rem;
+      overflow: hidden;
+    }}
+    .out-of-scope-card .day-header {{
+      background: #fffbeb;
+    }}
+    .out-of-scope-card .day-header h2 {{
+      color: #92400e;
     }}
     .day-header {{
       display: flex;
@@ -2225,6 +2422,7 @@ def render_html(
       main {{ max-width: none; padding: 0; margin: 0; }}
       body:not(.print-include-summary) .summary-card {{ display: none !important; }}
       body.print-include-summary .day-card {{ display: none !important; }}
+      body.print-include-summary .out-of-scope-card {{ display: none !important; }}
       /* iframe には対象カードだけ入るため print-one-day の非表示ルールは不要 */
       body.print-one-day .summary-card {{ display: none !important; }}
 
@@ -2245,6 +2443,18 @@ def render_html(
         max-height: none;
         overflow: visible !important;
         display: block !important;
+      }}
+      .out-of-scope-card {{
+        page-break-after: always;
+        break-after: page;
+        border: none;
+        border-radius: 0;
+        margin: 0;
+        box-shadow: none;
+        max-height: none;
+        overflow: visible !important;
+        display: block !important;
+        page: landscape-sheet;
       }}
       .day-card:last-child {{ page-break-after: auto; }}
       /* 印刷は全日横向きA4（8/31など6件の日も他日と揃える） */
@@ -2276,6 +2486,33 @@ def render_html(
       }}
       body.print-all-days .changelog-list li {{ margin: 1.2mm 0; }}
 
+      .excluded-sheet {{
+        border: none;
+        box-shadow: none;
+        border-radius: 0;
+        margin: 0;
+        padding: 0;
+        display: block !important;
+        page: landscape-sheet;
+      }}
+      .excluded-sheet .changelog-updated,
+      .excluded-sheet .excluded-count {{
+        font-size: 10pt;
+        margin: 0 0 2mm;
+      }}
+      .excluded-table {{
+        font-size: 10pt;
+      }}
+      .excluded-table th,
+      .excluded-table td {{
+        border: 1px solid #ccc;
+        padding: 1.2mm 1.5mm;
+      }}
+      .kind-badge {{
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }}
+
       .print-sheet-title {{
         display: flex;
         flex-wrap: wrap;
@@ -2301,31 +2538,6 @@ def render_html(
 
       .day-header {{ display: none; }}
       .chip-row {{ display: none; }}
-      .visit-caution {{
-        margin: 3mm 0 0;
-        padding: 2.5mm 3mm;
-        border: 1.5pt solid #b45309;
-        background: #fffbeb !important;
-        -webkit-print-color-adjust: exact;
-        print-color-adjust: exact;
-        page-break-inside: avoid;
-        break-inside: avoid;
-      }}
-      .visit-caution h3 {{
-        font-size: 11pt;
-        color: #000;
-        margin: 0 0 1.5mm;
-      }}
-      .visit-caution p {{
-        font-size: 10pt;
-        margin: 0 0 2mm;
-        color: #111;
-      }}
-      .visit-caution-img {{
-        max-height: 70mm;
-        width: auto;
-        max-width: 100%;
-      }}
 
       .doctor-block {{
         padding: 0 0 2mm;
@@ -2453,6 +2665,7 @@ def render_html(
     </div>
     <nav class="nav-days no-print" aria-label="日付ジャンプ">
       {"".join(f'<a href="#day-{d["key"].replace("/", "").replace("(", "").replace(")", "")}-head">{html.escape(d["key"])}</a>' for d in data['days'])}
+      <a class="nav-out-of-scope" href="#day-outofscope-head">対象外</a>
     </nav>
     <p id="api-status" class="api-status no-print" hidden>ローカルAPI接続済み</p>
   </header>
@@ -2478,11 +2691,14 @@ def render_html(
       </table>
     </section>
     {day_sections}
+    {out_of_scope_html}
   </main>
   {changelog_html}
+  {excluded_html}
   <nav class="sheet-tabs no-print" aria-label="シート">
-    <button type="button" class="sheet-tab active" data-sheet="list">8月往診リスト</button>
+    <button type="button" class="sheet-tab active" data-sheet="list">10月往診リスト</button>
     <button type="button" class="sheet-tab" data-sheet="changelog">変更履歴</button>
+    <button type="button" class="sheet-tab" data-sheet="excluded">休止・中止</button>
   </nav>
   <textarea id="tsv-all" class="tsv-store" readonly>{html.escape(all_visits_tsv(data['days']))}</textarea>
   <textarea id="tsv-patients" class="tsv-store" readonly>{html.escape(patients_to_tsv(data['patients']))}</textarea>
@@ -2668,14 +2884,43 @@ def render_html(
         }});
         var listEl = document.getElementById('sheet-list');
         var logEl = document.getElementById('sheet-changelog');
+        var exclEl = document.getElementById('sheet-excluded');
         if (listEl) listEl.hidden = sheet !== 'list';
         if (logEl) logEl.hidden = sheet !== 'changelog';
+        if (exclEl) exclEl.hidden = sheet !== 'excluded';
+      }});
+    }});
+
+    function showListSheet() {{
+      var listTab = document.querySelector('.sheet-tab[data-sheet="list"]');
+      if (listTab && !listTab.classList.contains('active')) {{
+        listTab.click();
+      }}
+    }}
+    document.querySelectorAll('.nav-days a').forEach(function(a) {{
+      a.addEventListener('click', function(e) {{
+        var hash = a.getAttribute('href');
+        showListSheet();
+        if (!hash || hash.charAt(0) !== '#') {{
+          return;
+        }}
+        var el = document.querySelector(hash);
+        if (!el) {{
+          return;
+        }}
+        e.preventDefault();
+        window.setTimeout(function() {{
+          el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+          if (history.replaceState) {{
+            history.replaceState(null, '', hash);
+          }}
+        }}, 0);
       }});
     }});
   </script>
   <script>
     window.OUSEHIN_API_BASE = "http://127.0.0.1:8765";
-    window.OUSEHIN_PERIOD_KEY = "2026-08";
+    window.OUSEHIN_PERIOD_KEY = "2026-09";
   </script>
   <script>
 /*__SCHEDULE_DND_JS__*/
@@ -2698,7 +2943,7 @@ def load_constraints_json() -> dict:
     if not CONSTRAINTS_PATH.exists():
         return {
             "version": 1,
-            "capacity": {"花輪": 8, "片山": 11, "鳥越": 11},
+            "capacity": {"花輪": 8, "片山": 11, "鳥越": 11, "鳥越午前": 4},
             "day_capacity": {},
             "doctor_pref_labels": {
                 "hanawa": "花輪",

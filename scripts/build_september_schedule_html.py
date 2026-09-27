@@ -1096,6 +1096,7 @@ def render_html(
             </span>"""
 
         blocks = ""
+        split_maps = len(d["doctors"]) >= 2
         for doc in d["doctors"]:
             dc = doctor_class(doc["name"])
             tsv_id = f"tsv-{day_id}-{doc['name']}"
@@ -1132,6 +1133,14 @@ def render_html(
                   <td class="addr">{html.escape(v['address'])}</td>
                   <td class="note">{html.escape(v['note'])}</td>
                 </tr>"""
+            inline_map = ""
+            if split_maps:
+                inline_map = f"""
+              <div class="inline-route-map-wrap no-print">
+                <div class="inline-route-map" role="img" aria-label="{html.escape(doc['name'])}先生の往診ルート"></div>
+                <p class="map-status"></p>
+                <p class="inline-map-note">院内用です。住所を国土地理院の住所検索に送り、地図はOpenStreetMapを使います。</p>
+              </div>"""
             blocks += f"""
             <section class="doctor-block {dc}" data-doctor="{html.escape(doc['name'])}" data-day="{html.escape(d['key'])}" data-tsv-id="{tsv_id}">
               <div class="doctor-head">
@@ -1139,6 +1148,7 @@ def render_html(
                 <button type="button" class="copy-btn no-print" data-target="{tsv_id}" data-label="{html.escape(d['key'])} {html.escape(doc['name'])}">表をコピー（TSV）</button>
               </div>
               <textarea id="{tsv_id}" class="tsv-store" readonly aria-hidden="true">{html.escape(visits_to_tsv(doc['visits'], d['key'], doc['name']))}</textarea>
+              {inline_map}
               <div class="table-wrap">
                 <table>
                   <thead>
@@ -1168,6 +1178,13 @@ def render_html(
         doc_labels = " / ".join(
             f"{doc['name']}{len(doc['visits'])}件" for doc in d["doctors"]
         )
+        map_btn = ""
+        if not split_maps:
+            map_btn = (
+                f'<button type="button" class="map-btn" data-map-day="day-{day_id}" '
+                f'data-label="{html.escape(d["key"])}" '
+                f"onclick=\"OusehinRouteMap.one('day-{day_id}'); return false;\">マップ</button>"
+            )
         day_sections += f"""
         <article class="day-card {density}" id="day-{day_id}" data-day="{html.escape(d['key'])}">
           <div class="print-sheet-title print-only">
@@ -1181,7 +1198,7 @@ def render_html(
             <div class="day-actions no-print">
               <button type="button" class="copy-btn secondary" data-target="tsv-day-{day_id}" data-label="{html.escape(d['key'])} 全日">この日をまとめてコピー</button>
               <button type="button" class="print-btn" data-print-day="day-{day_id}" data-label="{html.escape(d['key'])}" onclick="OusehinPrint.one('day-{day_id}'); return false;">この日を印刷（A4）</button>
-              <button type="button" class="map-btn" data-map-day="day-{day_id}" data-label="{html.escape(d['key'])}" onclick="OusehinRouteMap.one('day-{day_id}'); return false;">マップ</button>
+              {map_btn}
             </div>
           </header>
           {edit_note}
@@ -1618,7 +1635,8 @@ def render_html(
     .route-map-wrap {{
       margin: 0 0 .85rem;
     }}
-    #route-map-canvas {{
+    #route-map-canvas,
+    .inline-route-map {{
       height: 320px;
       width: 100%;
       border-radius: 10px;
@@ -1626,6 +1644,15 @@ def render_html(
       background: #e2e8f0;
       z-index: 0;
       overflow: hidden;
+    }}
+    .inline-route-map-wrap {{
+      margin: .35rem 0 .85rem;
+    }}
+    .inline-map-note {{
+      margin: .35rem 0 0;
+      font-size: .75rem;
+      line-height: 1.4;
+      color: #9f1239;
     }}
     .map-status {{
       margin: .4rem 0 0;
@@ -1638,12 +1665,15 @@ def render_html(
       display: flex;
       align-items: center;
       justify-content: center;
-      width: 28px;
-      height: 28px;
+      width: 32px;
+      height: 32px;
       border-radius: 999px;
       color: #fff;
-      font-size: 12px;
-      font-weight: 700;
+      font-size: 14px;
+      font-weight: 800;
+      line-height: 1;
+      box-sizing: border-box;
+      border: 2px solid #fff;
       box-shadow: 0 1px 4px rgba(0,0,0,.35);
     }}
     .map-route {{

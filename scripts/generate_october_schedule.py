@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""9月往診リストを均等配置・ルート最適化付きで生成する。"""
+"""10月往診リストを均等配置・ルート最適化付きで生成する。"""
 
 from __future__ import annotations
 
@@ -20,15 +20,14 @@ from common import display_name, dual_visit_location_hint, format_dual_visit_add
 from ledger_csv import find_latest_ledger_csv
 
 ROOT = SCRIPTS.parent
-HOPE_CSV = ROOT / '🚙🚕🚗往診周り順👴🏻👴👴🏼suzuki - 9月往診日・希望.csv'
+HOPE_CSV = ROOT / '🚙🚕🚗往診周り順👴🏻👴👴🏼suzuki - 10月往診日・希望.csv'
 LEDGER_CSV = find_latest_ledger_csv() or (
-    ROOT / "★台帳（訪問）★ 編集用 - 編集用（介護） (6).csv"
 )
 HISTORY_CSV = ROOT / "raw/3 往診履歴 7ab6c23709254f879aab52376aa63f2d_all.csv"
-OUTPUT_MD = ROOT / "exports/9月往診リスト_2026.md"
-OVERRIDES_PATH = ROOT / "exports/september_schedule_overrides.json"
-CONSTRAINTS_PATH = ROOT / "exports/september_patient_constraints.json"
-PERIOD_KEY = "2026-09"
+OUTPUT_MD = ROOT / "exports/10月往診リスト_2026.md"
+OVERRIDES_PATH = ROOT / "exports/october_schedule_overrides.json"
+CONSTRAINTS_PATH = ROOT / "exports/october_patient_constraints.json"
+PERIOD_KEY = "2026-10"
 
 EXCLUDED_IDS = {
     "b297", "b450", "b467", "b418", "b478", "b264", "b242", "b442",
@@ -40,19 +39,15 @@ EXCLUDED_IDS = {
     "b339",  # 本橋明子：休止・枠解除
     "b476",  # 杉原博子：入院
     "b460",  # 土屋洸子：8/27入院
+    "b376",  # 吉岡陽子：3ヶ月に1回。11月リストへ
+    "b483",  # 木村チヱ：コメント「9/14終了」
+    "b399",  # 岡田貞子：10月の希望日が全日NG
 }
 
 INCLUDE_DESPITE_STATUS = frozenset()
 
 # 月土ルート外だが往診が必要な人（火金の院長休憩など）
-OUT_OF_SCOPE_VISIT: dict[str, dict[str, str]] = {
-    "b152": {
-        "doctor": "花輪",
-        "slot": "火・金（院長休憩）候補 9/8・11・15・18",
-        "eta": "14:30〜15:00",
-        "how": "徒歩",
-    },
-}
+OUT_OF_SCOPE_VISIT: dict[str, dict[str, str]] = {}
 
 # 台帳に番地が無い／チャットで補った住所
 ADDRESS_OVERRIDES: dict[str, str] = {
@@ -71,27 +66,31 @@ NAME_OVERRIDES: dict[str, str] = {
 # load_ledger() が氏名も入れる
 LEDGER_NAMES: dict[str, str] = {}
 
+# C1: 10/12祝・10/24は往診なし。10/31は鳥越＋石橋。
 DAY_META = {
-    "9/5(土)": {"date": date(2026, 9, 5), "dow": "土", "doctors": ["鳥越"]},
-    "9/7(月)": {"date": date(2026, 9, 7), "dow": "月", "doctors": ["花輪", "片山"]},
-    "9/14(月)": {"date": date(2026, 9, 14), "dow": "月", "doctors": ["花輪"]},
-    "9/19(土)": {"date": date(2026, 9, 19), "dow": "土", "doctors": ["鳥越"]},
-    "9/26(土)": {"date": date(2026, 9, 26), "dow": "土", "doctors": ["鳥越"]},
-    "9/28(月)": {"date": date(2026, 9, 28), "dow": "月", "doctors": ["花輪"]},
+    "10/3(土)": {"date": date(2026, 10, 3), "dow": "土", "doctors": ["鳥越"]},
+    "10/5(月)": {"date": date(2026, 10, 5), "dow": "月", "doctors": ["花輪", "片山"]},
+    "10/10(土)": {"date": date(2026, 10, 10), "dow": "土", "doctors": ["鳥越"]},
+    "10/17(土)": {"date": date(2026, 10, 17), "dow": "土", "doctors": ["鳥越"]},
+    "10/19(月)": {"date": date(2026, 10, 19), "dow": "月", "doctors": ["花輪", "片山"]},
+    "10/26(月)": {"date": date(2026, 10, 26), "dow": "月", "doctors": ["花輪"]},
+    "10/31(土)": {"date": date(2026, 10, 31), "dow": "土", "doctors": ["鳥越"]},
 }
 
 DAY_ORDER = list(DAY_META.keys())
-KATAYAMA_DAYS = frozenset({"9/7(月)"})
+KATAYAMA_DAYS = frozenset({"10/5(月)", "10/19(月)"})
 HANAWA_DAYS = frozenset(dk for dk, m in DAY_META.items() if "花輪" in m["doctors"])
+# 花輪は1日6件まで。午後不可の人は片山へ流さない。
+HANAWA_SOFT_CAP = 6
 
-# 宮嶋は5・7・28確定。9/12は往診中止。9/19は午後のみ（上杉）。
 DRIVER_BY_DAY: dict[str, str] = {
-    "9/5(土)": "宮嶋",
-    "9/7(月)": "宮嶋",
-    "9/14(月)": "上杉",
-    "9/19(土)": "上杉",
-    "9/26(土)": "石橋",
-    "9/28(月)": "宮嶋",
+    "10/3(土)": "宮嶋",
+    "10/5(月)": "宮嶋",
+    "10/10(土)": "上杉",
+    "10/17(土)": "上杉",
+    "10/19(月)": "上杉",
+    "10/26(月)": "宮嶋",
+    "10/31(土)": "石橋",
 }
 
 
@@ -102,15 +101,18 @@ def driver_for_day(day_key: str) -> str:
     return f"{name}さん"
 
 
-# 人数制限は今回無視（手動ルートを落とさないための上限）
+# 花輪は1日5〜6件。片山・鳥越は10件を超えてよい。
+HANAWA_SOFT_CAP = 6
 CAPACITY = {
-    ("花輪", "9/7(月)"): 20,
-    ("花輪", "9/14(月)"): 20,
-    ("花輪", "9/28(月)"): 20,
-    ("片山", "9/7(月)"): 20,
-    ("鳥越", "9/5(土)"): 20,
-    ("鳥越", "9/19(土)"): 20,
-    ("鳥越", "9/26(土)"): 20,
+    ("花輪", "10/5(月)"): 3,
+    ("花輪", "10/19(月)"): 6,
+    ("花輪", "10/26(月)"): 6,
+    ("片山", "10/5(月)"): 16,
+    ("片山", "10/19(月)"): 16,
+    ("鳥越", "10/3(土)"): 18,
+    ("鳥越", "10/10(土)"): 18,
+    ("鳥越", "10/17(土)"): 18,
+    ("鳥越", "10/31(土)"): 18,
 }
 
 # クリニック（東大泉）からのエリア優先順（西→東・近→遠の目安）
@@ -438,12 +440,15 @@ def load_patients() -> list[Patient]:
 
     with HOPE_CSV.open(encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
-            cid = normalize_chart_id(row.get("id") or row.get("ID") or "")
+            cid = normalize_chart_id(
+                row.get("patient_id") or row.get("id") or row.get("ID") or ""
+            )
             if not cid or cid in EXCLUDED_IDS:
                 continue
             name = (row.get("氏名") or row.get("名前") or "").strip()
             status_note = (row.get("状態") or row.get("休止・再開・終了") or "").strip()
             comment = (row.get("コメント") or "").strip()
+            caution = (row.get("注意") or "").strip()
             status = status_note + comment
             if cid not in INCLUDE_DESPITE_STATUS:
                 if any(k in status_note for k in ("終了", "休止", "逝去", "入院中")):
@@ -481,7 +486,17 @@ def load_patients() -> list[Patient]:
             elif LEDGER_NAMES.get(cid):
                 p.name = LEDGER_NAMES[cid]
             p.area = infer_area(cid, p.address, hist_areas)
-            p.eligible_days.discard("9/12(土)")
+            # 10/12は祝日、10/24は鳥越4週の枠を31へずらしたため往診なし
+            p.eligible_days.discard("10/12(月)")
+            p.eligible_days.discard("10/24(土)")
+            if caution:
+                p.notes.append(caution)
+            doc_label = (row.get("担当医師") or "").strip()
+            if p.doctor_pref == "auto":
+                if "花輪" in doc_label or "院長" in doc_label:
+                    p.doctor_pref = "hanawa"
+                elif "片山" in doc_label:
+                    p.doctor_pref = "katayama"
             patients.append(p)
 
     append_manual_patients(patients, ledger, hist_areas)
@@ -494,158 +509,8 @@ def append_manual_patients(
     ledger: dict[str, str],
     hist_areas: dict[str, str],
 ) -> None:
-    """希望CSV未掲載／休止扱いだが手動配置する患者。"""
-    by_id = {p.chart_id: p for p in patients}
-    manuals: list[Patient] = [
-        Patient(
-            chart_id="b507",
-            name="片野妙子",
-            insurance="介護",
-            deadline="",
-            comment="",
-            status_note="",
-            eligible_days={"9/5(土)"},
-            address=ledger.get("b507") or "東京都練馬区東大泉5丁目15-2-405",
-            doctor_pref="torikoe",
-        ),
-        Patient(
-            chart_id="b511",
-            name="小林誠",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="9/1退院・9/2スキップ開始。退院1ヶ月以内。月曜10:30-13:00／土曜12:30-15:30",
-            status_note="",
-            eligible_days={"9/26(土)", "9/7(月)", "9/28(月)"},
-            address=ledger.get("b511") or ADDRESS_OVERRIDES["b511"],
-            doctor_pref="torikoe",
-        ),
-        Patient(
-            chart_id="b512",
-            name=LEDGER_NAMES.get("b512") or "清水輝男",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="新規初回。和光市白子1丁目4番3号",
-            status_note="",
-            eligible_days={"9/7(月)"},
-            address=ledger.get("b512") or "埼玉県和光市白子1丁目4番3号",
-            doctor_pref="katayama",
-        ),
-        Patient(
-            chart_id="b508",
-            name=LEDGER_NAMES.get("b508") or "雨谷浩子",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="新規。新座市池田。9/19先頭（後藤夫妻のリハ前に回るため12:30出発）",
-            status_note="",
-            eligible_days={"9/19(土)"},
-            address=ledger.get("b508") or "新座市池田3-3-3",
-            doctor_pref="torikoe",
-        ),
-        Patient(
-            chart_id="b506",
-            name=LEDGER_NAMES.get("b506") or "菅谷清子",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="新規。FH大泉学園ハウス108。9/19後藤夫妻の直後",
-            status_note="",
-            eligible_days={"9/19(土)"},
-            address=ledger.get("b506")
-            or "練馬区大泉学園町2-1-24　ファミリー・ホスピス大泉学園ハウス 108",
-            doctor_pref="torikoe",
-        ),
-        Patient(
-            chart_id="b513",
-            name=LEDGER_NAMES.get("b513") or "大橋正美",
-            insurance="介護",
-            deadline="2026-09-29",
-            comment="新規。高野台。9/28花輪・和田の直後",
-            status_note="",
-            eligible_days={"9/28(月)"},
-            address=ledger.get("b513") or "練馬区高野台4-12-12",
-            doctor_pref="hanawa",
-        ),
-        Patient(
-            chart_id="b510",
-            name=LEDGER_NAMES.get("b510") or "國峯浩",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="新規。そんぽの家S西東京泉町211。9/26安田の直前（大和キャンセル枠）",
-            status_note="",
-            eligible_days={"9/26(土)"},
-            address=ledger.get("b510")
-            or "西東京市泉町2-14-13　そんぽの家S西東京泉町211号室",
-            doctor_pref="torikoe",
-        ),
-        Patient(
-            chart_id="b301",
-            name=LEDGER_NAMES.get("b301") or "瓦林裕美",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="8月入院キャンセル分。9/19キャンセル→9/26鳥越・小林誠の直後（高野台3）",
-            status_note="",
-            eligible_days={"9/19(土)", "9/26(土)"},
-            address=ledger.get("b301") or "東京都練馬区高野台3-36-8",
-            doctor_pref="torikoe",
-        ),
-        Patient(
-            chart_id="b514",
-            name=NAME_OVERRIDES.get("b514") or LEDGER_NAMES.get("b514") or "造酒 侚子",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="新規。学園町4-8-4。9/14今井鈴の直後。AM～13:00在宅",
-            status_note="",
-            eligible_days={"9/14(月)"},
-            address=ledger.get("b514") or ADDRESS_OVERRIDES["b514"],
-            doctor_pref="hanawa",
-        ),
-        Patient(
-            chart_id="b381",
-            name="東村博",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="9/1退院・9/2スキップ再開。退院1ヶ月以内。9/26 PM可",
-            status_note="",
-            eligible_days={"9/26(土)"},
-            address=ledger.get("b381") or ADDRESS_OVERRIDES["b381"],
-            doctor_pref="torikoe",
-        ),
-        Patient(
-            chart_id="b271",
-            name="越智博",
-            insurance="介護",
-            deadline="2026-09-30",
-            comment="8/26退院・初回スキップ再開。月曜AM可・土曜可。香水（大泉町2）の前後希望",
-            status_note="",
-            eligible_days={"9/28(月)", "9/26(土)", "9/7(月)"},
-            address=ledger.get("b271") or ADDRESS_OVERRIDES["b271"],
-            doctor_pref="hanawa",
-        ),
-        Patient(
-            chart_id="b428",
-            name=LEDGER_NAMES.get("b428") or "仲 里路",
-            insurance="介護",
-            deadline="2026-08-31",
-            comment="入院休止後の再開。9/26鳥越・小林誠の直後（S井荻）",
-            status_note="",
-            eligible_days={"9/26(土)"},
-            address=ledger.get("b428") or ADDRESS_OVERRIDES["b428"],
-            doctor_pref="torikoe",
-        ),
-    ]
-    for p in manuals:
-        if p.chart_id in by_id:
-            existing = by_id[p.chart_id]
-            if p.address:
-                existing.address = p.address
-                existing.area = infer_area(p.chart_id, p.address, hist_areas)
-            if NAME_OVERRIDES.get(p.chart_id):
-                existing.name = NAME_OVERRIDES[p.chart_id]
-            elif LEDGER_NAMES.get(p.chart_id):
-                existing.name = LEDGER_NAMES[p.chart_id]
-            continue
-        p.area = infer_area(p.chart_id, p.address, hist_areas)
-        patients.append(p)
-        by_id[p.chart_id] = p
+    """10月は希望CSVを正とする。9月の手動追加は引き継がない。"""
+    return
 
 
 def pin(p: Patient, day_key: str, doctor: str, note: str = "") -> None:
@@ -665,6 +530,7 @@ def first_eligible(p: Patient, days: list[str] | None = None) -> str | None:
 
 
 def apply_pins(patients: list[Patient]) -> None:
+    """コメント・期限・同建物で日付を固定する。"""
     by_id = {p.chart_id: p for p in patients}
 
     def pin_pair(a: str, b: str, prefer_days: list[str] | None = None, doctor: str | None = None) -> None:
@@ -680,174 +546,140 @@ def apply_pins(patients: list[Patient]) -> None:
         doc = doctor or ("鳥越" if DAY_META[dk]["dow"] == "土" else "花輪")
         pa.pair_with = b
         pb.pair_with = a
-        pin(pa, dk, doc, "ご夫婦・同日連続")
-        pin(pb, dk, doc, "ご夫婦・同日連続")
+        pin(pa, dk, doc, "ご夫婦・同建物・同日連続")
+        pin(pb, dk, doc, "ご夫婦・同建物・同日連続")
 
-    # ご夫婦・同日
-    pin_pair("b464", "b475", ["9/5(土)", "9/19(土)", "9/26(土)"], "鳥越")  # 黒羽
-    pin_pair("b410", "b246", ["9/7(月)"], "片山")  # 坂本幸子・和光（月曜AM NG）
-    pin_pair("b042", "b401", ["9/19(土)", "9/5(土)", "9/26(土)"], "鳥越")  # 後藤（9/19午後前半でリハ回避）
-    pin_pair("b473", "b449", ["9/26(土)", "9/5(土)", "9/19(土)"], "鳥越")  # 長谷川
+    # 同建物・同施設。10/3に寄せすぎないよう、希望日の先頭を分散する。
+    pin_pair("b349", "b213", ["10/3(土)", "10/17(土)", "10/31(土)", "10/10(土)"], "鳥越")
+    pin_pair("b148", "b149", ["10/31(土)", "10/17(土)", "10/3(土)"], "鳥越")  # 10/10は不可。15時以降
+    pin_pair("b398", "b443", ["10/3(土)", "10/10(土)", "10/17(土)", "10/31(土)"], "鳥越")
+    pin_pair("b451", "b236", ["10/10(土)", "10/17(土)", "10/31(土)", "10/3(土)"], "鳥越")  # 土支田。飯澤と同エリア
+    pin_pair("b322", "b452", ["10/3(土)", "10/10(土)", "10/17(土)", "10/31(土)"], "鳥越")  # 谷原。10/3の西端から入る
 
-    # 医療（9月は各1回。期限前配置）
+    def set_deadline(cid: str, iso: str) -> None:
+        if cid in by_id:
+            by_id[cid].deadline = iso
+
+    # 医療。CSVの期限は前回サイクルなので、9月実施からの次回期限に更新する。
     if "b253" in by_id:
-        pin(by_id["b253"], "9/28(月)", "花輪", "医療・希望どおり9/28花輪")
+        set_deadline("b253", "2026-10-28")
+        pin(by_id["b253"], "10/26(月)", "花輪", "医療・コメントどおり10/26花輪")
         by_id["b253"].doctor_pref = "hanawa"
-    if "b370" in by_id:
-        pin(by_id["b370"], "9/7(月)", "片山", "医療・期限9/16前の9/7片山")
-        by_id["b370"].doctor_pref = "katayama"
     if "b491" in by_id:
-        pin(by_id["b491"], "9/14(月)", "花輪", "医療・期限9/16前。月曜13:00-13:40NGのため花輪AM")
+        set_deadline("b491", "2026-10-14")
+        pin(by_id["b491"], "10/5(月)", "花輪", "医療・9/14から30日。月曜13:00-13:40NGのため花輪AM")
         by_id["b491"].doctor_pref = "hanawa"
     if "b328" in by_id:
-        pin(by_id["b328"], "9/14(月)", "花輪", "医療・期限9/16。9/7不在のため14花輪・三上の直後")
-        by_id["b328"].doctor_pref = "hanawa"
-    if "b75" in by_id:
-        pin(by_id["b75"], "9/26(土)", "鳥越", "医療・期限9/28前の9/26鳥越")
-        by_id["b75"].doctor_pref = "torikoe"
+        set_deadline("b328", "2026-10-14")
+        pin(by_id["b328"], "10/3(土)", "鳥越", "医療・期限前の土曜。及川さんへ連絡")
+        by_id["b328"].doctor_pref = "torikoe"
     if "b474" in by_id:
-        pin(by_id["b474"], "9/14(月)", "花輪", "医療・マイナは月曜向き。期限9/30の9/14花輪")
+        set_deadline("b474", "2026-10-14")
+        pin(by_id["b474"], "10/5(月)", "花輪", "医療・マイナ。期限前の月曜花輪")
         by_id["b474"].doctor_pref = "hanawa"
+    for yasuda_id in ("b075", "b75"):
+        if yasuda_id in by_id:
+            set_deadline(yasuda_id, "2026-10-26")
+            pin(by_id[yasuda_id], "10/17(土)", "鳥越", "医療・10/31は期限NG。10/26は16時以降のみで花輪に乗らない")
+            by_id[yasuda_id].doctor_pref = "torikoe"
+    if "b482" in by_id:
+        pin(by_id["b482"], "10/17(土)", "鳥越", "月曜10:30-13:00不可。土曜14:00-15:30")
+        by_id["b482"].doctor_pref = "torikoe"
+    if "b370" in by_id:
+        p = by_id["b370"]
+        set_deadline("b370", "2026-10-06")
+        p.visit_count = 2
+        p.pinned = {"10/5(月)": "片山", "10/26(月)": "花輪"}
+        p.eligible_days = {"10/5(月)", "10/26(月)"}
+        p.doctor_pref = "katayama"
+        p.notes.append("前回9/7。10/6までに1回目、月初配置のため月末にもう1回")
 
-    # 院長希望・施設（ミモザ等）
-    if "b324" in by_id:
-        pin(by_id["b324"], "9/7(月)", "花輪", "皮膚科相談のため月曜AM院長")
-        by_id["b324"].doctor_pref = "hanawa"
-    if "b384" in by_id:
-        pin(by_id["b384"], "9/28(月)", "花輪", "ミモザ・土曜NG（9/14花輪満枠のため28へ）")
-        by_id["b384"].doctor_pref = "hanawa"
-    if "b298" in by_id:
-        pin(by_id["b298"], "9/28(月)", "花輪", "ミモザ・土曜NG")
-        by_id["b298"].doctor_pref = "hanawa"
-    if "b278" in by_id:
-        pin(by_id["b278"], "9/7(月)", "花輪", "9/7第一希望・皮膚科を院長へ相談")
-        by_id["b278"].doctor_pref = "hanawa"
-    if "b152" in by_id:
-        by_id["b152"].eligible_days = set()
-        by_id["b152"].notes.append(
-            "プラウドタワー・火金の院長休憩往診。月土リスト対象外。"
-            "候補 9/8・11・15・18 の14:30–15:00。ヤナカ確認中"
-        )
-    if "b368" in by_id:
-        pin(by_id["b368"], "9/7(月)", "片山", "7日希望。10:15-10:55リハNGのため片山")
-        by_id["b368"].doctor_pref = "katayama"
-    if "b131" in by_id:
-        pin(by_id["b131"], "9/14(月)", "花輪", "月曜希望")
-        by_id["b131"].doctor_pref = "hanawa"
-    if "b487" in by_id:
-        pin(by_id["b487"], "9/28(月)", "花輪", "月曜日希望")
-        by_id["b487"].doctor_pref = "hanawa"
-    if "b138" in by_id:
-        pin(by_id["b138"], "9/5(土)", "鳥越", "土曜14時以降・鳥越希望")
-        by_id["b138"].doctor_pref = "torikoe"
+    # 希望日が1日、またはコメントで日が決まっている人
+    if "b484" in by_id:
+        pin(by_id["b484"], "10/10(土)", "鳥越", "月曜NG・10/10のみ。片山NG。自宅駐車場を使う")
+        by_id["b484"].doctor_pref = "torikoe"
     if "b492" in by_id:
-        pin(
-            by_id["b492"],
-            "9/26(土)",
-            "鳥越",
-            "8/15未実施分。2026-08-28キャンセル・10月初旬へ",
-        )
-    if "b507" in by_id:
-        pin(
-            by_id["b507"],
-            "9/5(土)",
-            "鳥越",
-            "2026-08-28追加。8/29キャンセル分を9/5先頭へ（東大泉5）",
-        )
-        by_id["b507"].doctor_pref = "torikoe"
-        by_id["b507"].address = "東京都練馬区東大泉5丁目15-2-405"
-        by_id["b507"].area = infer_area("b507", by_id["b507"].address, {})
-    if "b427" in by_id:
-        dk = first_eligible(by_id["b427"], ["9/7(月)", "9/14(月)", "9/28(月)"])
-        if dk:
-            pin(by_id["b427"], dk, "花輪" if dk != "9/7(月)" else "片山", "追加・月曜")
-    if "b285" in by_id:
-        pin(by_id["b285"], "9/28(月)", "花輪", "月曜午前遅め希望")
-        by_id["b285"].doctor_pref = "hanawa"
-    if "b342" in by_id:
-        pin(by_id["b342"], "9/14(月)", "花輪", "土曜NG。10:30-11:30リハNGのため11:30以降")
-        by_id["b342"].doctor_pref = "hanawa"
-    if "b343" in by_id:
-        pin(by_id["b343"], "9/19(土)", "鳥越", "9/12中止のため土曜へ（9/5 NG）")
-    if "b301" in by_id:
-        # pin() は eligible_days を上書きするため、両日を直接固定する
-        by_id["b301"].pinned = {"9/19(土)": "鳥越", "9/26(土)": "鳥越"}
-        by_id["b301"].eligible_days = {"9/19(土)", "9/26(土)"}
-        by_id["b301"].doctor_pref = "torikoe"
-        by_id["b301"].notes.append(
-            "9/19キャンセル（リスト残）。9/26鳥越・小林誠の直後（高野台3）→仲里→早尻"
-        )
-    if "b162" in by_id:
-        pin(by_id["b162"], "9/19(土)", "鳥越", "9/12中止・月曜NGのため9/19")
-        by_id["b162"].doctor_pref = "torikoe"
-    if "b199" in by_id:
-        pin(by_id["b199"], "9/19(土)", "鳥越", "9/26別医療機関受診のため9/19・菅谷の直後")
-    if "b421" in by_id:
-        pin(by_id["b421"], "9/7(月)", "花輪", "月土とも14時以降NGのため花輪AM")
-        by_id["b421"].doctor_pref = "hanawa"
-    if "b356" in by_id:
-        pin(by_id["b356"], "9/14(月)", "花輪", "土曜NG")
-        by_id["b356"].doctor_pref = "hanawa"
-    if "b116" in by_id:
-        pin(by_id["b116"], "9/7(月)", "片山", "12:15-13:15リハNGのため片山後半")
-        by_id["b116"].doctor_pref = "katayama"
-    if "b353" in by_id:
-        pin(by_id["b353"], "9/7(月)", "片山", "11:30-12:30訪看NG")
-        by_id["b353"].doctor_pref = "katayama"
-    if "b378" in by_id:
-        pin(by_id["b378"], "9/7(月)", "花輪", "26・28は15時以降通院の可能性・AM希望")
-        by_id["b378"].doctor_pref = "hanawa"
-    if "b511" in by_id:
-        pin(
-            by_id["b511"],
-            "9/26(土)",
-            "鳥越",
-            "新規・退院1ヶ月。土曜12:30-15:30のため9/26田代の直後",
-        )
-        by_id["b511"].doctor_pref = "torikoe"
-        by_id["b511"].notes.append("土曜12:30-15:30")
-    if "b512" in by_id:
-        pin(by_id["b512"], "9/7(月)", "片山", "新規初回。和光白子1-4-3・大越の直後")
-        by_id["b512"].doctor_pref = "katayama"
-    if "b508" in by_id:
-        pin(by_id["b508"], "9/19(土)", "鳥越", "新規。新座池田・9/19先頭。後藤リハ回避のため12:30出発")
-        by_id["b508"].doctor_pref = "torikoe"
-    if "b506" in by_id:
-        pin(by_id["b506"], "9/19(土)", "鳥越", "新規。FH大泉学園・後藤夫妻の直後")
-        by_id["b506"].doctor_pref = "torikoe"
-    if "b513" in by_id:
-        pin(by_id["b513"], "9/28(月)", "花輪", "新規。高野台・和田の直後。期限9/29")
-        by_id["b513"].doctor_pref = "hanawa"
-    if "b510" in by_id:
-        pin(by_id["b510"], "9/26(土)", "鳥越", "新規。西東京泉町・安田の直前（大和キャンセル枠）")
-        by_id["b510"].doctor_pref = "torikoe"
-    if "b514" in by_id:
-        pin(by_id["b514"], "9/14(月)", "花輪", "新規。学園町4・今井鈴の直後。AM～13:00在宅")
-        by_id["b514"].doctor_pref = "hanawa"
-    if "b381" in by_id:
-        pin(by_id["b381"], "9/26(土)", "鳥越", "再開・退院1ヶ月。吉田と澤味の間")
-        by_id["b381"].doctor_pref = "torikoe"
-    if "b271" in by_id:
-        pin(
-            by_id["b271"],
-            "9/28(月)",
-            "花輪",
-            "再開。9/28花輪末尾。8/26退院の1ヶ月は9/26のため2日超過",
-        )
-        by_id["b271"].doctor_pref = "hanawa"
-    if "b428" in by_id:
-        pin(
-            by_id["b428"],
-            "9/26(土)",
-            "鳥越",
-            "再開。9/26鳥越・小林誠の直後（S井荻）",
-        )
-        by_id["b428"].doctor_pref = "torikoe"
+        pin(by_id["b492"], "10/3(土)", "鳥越", "9月キャンセル分。10/3・5・10のうち初旬の10/3")
+        by_id["b492"].doctor_pref = "torikoe"
+    if "b251" in by_id:
+        pin(by_id["b251"], "10/31(土)", "鳥越", "10/31午後早め")
+    if "b431" in by_id:
+        pin(by_id["b431"], "10/26(月)", "花輪", "10/26のみ。10時以降。この日は片山なし")
+        by_id["b431"].doctor_pref = "hanawa"
+    if "b335" in by_id:
+        pin(by_id["b335"], "10/31(土)", "鳥越", "10/31のみ")
+    if "b456" in by_id:
+        pin(by_id["b456"], "10/3(土)", "鳥越", "10/3第一希望")
+    if "b325" in by_id:
+        pin(by_id["b325"], "10/19(月)", "花輪", "月曜AM院長（皮膚科）。10/5は医療を優先")
+        by_id["b325"].doctor_pref = "hanawa"
+    if "b221" in by_id:
+        pin(by_id["b221"], "10/19(月)", "花輪", "土曜NG。月曜AM早め")
+        by_id["b221"].doctor_pref = "hanawa"
+    if "b346" in by_id:
+        pin(by_id["b346"], "10/19(月)", "花輪", "月曜11:30以降NGのため花輪前半")
+        by_id["b346"].doctor_pref = "hanawa"
+    if "b153" in by_id:
+        pin(by_id["b153"], "10/19(月)", "片山", "月曜10:20-11:00リハ。花輪の開始帯と重なるため片山")
+        by_id["b153"].doctor_pref = "katayama"
+    if "b391" in by_id:
+        pin(by_id["b391"], "10/19(月)", "花輪", "月曜PMは入浴。10/5は水上直行でお昼戻りのため19へ")
+        by_id["b391"].doctor_pref = "hanawa"
+    if "b288" in by_id:
+        pin(by_id["b288"], "10/5(月)", "花輪", "院長宅から三鷹直行。2件目以降は11:15再出発。この日はお昼頃戻り")
+        by_id["b288"].doctor_pref = "hanawa"
+    if "b423" in by_id:
+        pin(by_id["b423"], "10/5(月)", "片山", "花輪6件に収めるため片山。学園町で片山の帰宅側")
+    if "b493" in by_id:
+        pin(by_id["b493"], "10/19(月)", "片山", "FH大泉。村松と同日連続。花輪は6件まで")
+        by_id["b493"].doctor_pref = "katayama"
 
-    # 花輪定員5のため、残りの月曜希望は片山（9/7のみ）へ寄せる準備
-    for cid in ("b498", "b307", "b065", "b439"):
-        if cid in by_id and "9/7(月)" in by_id[cid].eligible_days and not by_id[cid].pinned:
-            by_id[cid].doctor_pref = "katayama"
+    # 和泉・岡部と同じSOMPO大泉北は同日に寄せる
+    if "b404" in by_id and "b349" in by_id and by_id["b349"].pinned:
+        dk = next(iter(by_id["b349"].pinned))
+        if dk in by_id["b404"].eligible_days:
+            pin(by_id["b404"], dk, "鳥越", "SOMPO大泉北。和泉・岡部と同日")
+    # S井荻は上東・鳥山を同日連続（10/3は鳥山NG、10/10は上東NG）
+    if "b320" in by_id and "b380" in by_id:
+        pin(by_id["b320"], "10/17(土)", "鳥越", "S井荻。鳥山と同日。14:05までに終了")
+        pin(by_id["b380"], "10/17(土)", "鳥越", "S井荻。上東と同日連続")
+        by_id["b320"].pair_with = "b380"
+        by_id["b380"].pair_with = "b320"
+    if "b455" in by_id:
+        pin(by_id["b455"], "10/10(土)", "鳥越", "14時以降NGのため先頭。上東の日とは分ける")
+    if "b395" in by_id:
+        pin(by_id["b395"], "10/17(土)", "鳥越", "関町。安田と同日")
+    if "b245" in by_id:
+        pin(by_id["b245"], "10/17(土)", "鳥越", "光が丘。山本英喜と同日。10/3の東大泉帰りを遮らない")
+    if "b502" in by_id:
+        pin(by_id["b502"], "10/10(土)", "鳥越", "土支田。中川・高雄の齊藤荘と同エリア")
+    if "b494" in by_id:
+        pin(by_id["b494"], "10/17(土)", "鳥越", "14時前に終了。熊谷の日とは分けて先頭")
+    if "b490" in by_id:
+        pin(by_id["b490"], "10/31(土)", "鳥越", "上井草。10/3の北ルートには入れない")
+    if "b406" in by_id:
+        pin(by_id["b406"], "10/31(土)", "鳥越", "石神井台。平峯・吉岡の日へ。10/3の北回りを短くする")
+    if "b499" in by_id:
+        pin(by_id["b499"], "10/3(土)", "鳥越", "月曜AMか土曜PM。大町6で中原の直後")
+    if "b505" in by_id:
+        pin(by_id["b505"], "10/19(月)", "花輪", "10/10通院NG。12:20-12:50。10/5は水上の日でお昼戻りのため19の末尾")
+    if "b458" in by_id:
+        pin(by_id["b458"], "10/5(月)", "片山", "10/5花輪は水上直行の3件。午後可のため片山")
+    if "b500" in by_id:
+        pin(by_id["b500"], "10/5(月)", "片山", "14:00-15:00入浴NG。片山の15時以降")
+    if "b420" in by_id:
+        pin(by_id["b420"], "10/19(月)", "片山", "10/19花輪は松村・宮脇を受けるため片山へ")
+    if "b364" in by_id:
+        pin(by_id["b364"], "10/19(月)", "片山", "13:00-14:00訪看NG。15時以降、宮本と同じFH")
+
+
+def _am_only(p: Patient) -> bool:
+    """午後の片山に回せない人。"""
+    text = f"{p.comment} {' '.join(p.notes)}"
+    if p.chart_id in {"b391", "b408", "b346", "b221", "b325", "b491", "b474", "b253"}:
+        return True
+    keys = ("午後NG", "午後ＮＧ", "午後 NG", "PM入浴", "院長", "11:30以降", "午前中")
+    return any(k in text for k in keys)
 
 
 def choose_doctor(p: Patient, day_key: str, counts: dict[tuple[str, str], int]) -> str | None:
@@ -861,9 +693,15 @@ def choose_doctor(p: Patient, day_key: str, counts: dict[tuple[str, str], int]) 
         if counts.get(("鳥越", day_key), 0) < CAPACITY.get(("鳥越", day_key), 20):
             return "鳥越"
         return None
-    if p.doctor_pref == "hanawa":
-        if counts.get(("花輪", day_key), 0) < CAPACITY.get(("花輪", day_key), 20):
+    if p.doctor_pref == "hanawa" or _am_only(p):
+        if counts.get(("花輪", day_key), 0) < CAPACITY.get(("花輪", day_key), 6):
             return "花輪"
+        if (
+            day_key in KATAYAMA_DAYS
+            and not _am_only(p)
+            and counts.get(("片山", day_key), 0) < CAPACITY.get(("片山", day_key), 99)
+        ):
+            return "片山"
         return None
     if p.doctor_pref == "katayama":
         if day_key in KATAYAMA_DAYS and counts.get(("片山", day_key), 0) < CAPACITY.get(("片山", day_key), 20):
@@ -874,10 +712,16 @@ def choose_doctor(p: Patient, day_key: str, counts: dict[tuple[str, str], int]) 
     if p.doctor_pref == "torikoe":
         return None
     if day_key in KATAYAMA_DAYS:
-        if counts.get(("花輪", day_key), 0) < CAPACITY.get(("花輪", day_key), 20):
+        hanawa_n = counts.get(("花輪", day_key), 0)
+        katayama_n = counts.get(("片山", day_key), 0)
+        # 花輪5を埋めてから片山。両方満杯なら花輪の硬上限まで。
+        if hanawa_n < HANAWA_SOFT_CAP and hanawa_n < CAPACITY.get(("花輪", day_key), 99):
             return "花輪"
-        if counts.get(("片山", day_key), 0) < CAPACITY.get(("片山", day_key), 20):
+        if katayama_n < CAPACITY.get(("片山", day_key), 99):
             return "片山"
+        if hanawa_n < CAPACITY.get(("花輪", day_key), 99):
+            return "花輪"
+        return None
     if counts.get(("花輪", day_key), 0) < CAPACITY.get(("花輪", day_key), 20):
         return "花輪"
     return None
@@ -996,13 +840,87 @@ def apply_route_overrides(
 
 
 
+# スタッフ指定の回り順。日付・医師は変えず、この順を優先する。
+MANUAL_ROUTE_ORDER: dict[str, dict[str, list[str]]] = {
+    "10/3(土)": {
+        "鳥越": [
+            "b456",  # 中原
+            "b499",  # 高橋朱美
+            "b492",  # 大和
+            "b398",  # 寺野正行
+            "b443",  # 寺野洋子
+            "b322",  # 海上
+            "b452",  # 山岸
+            "b404",  # 新井武芳（以降は従来どおり）
+            "b213",  # 岡部
+            "b349",  # 和泉
+            "b328",  # 猪熊
+        ],
+    },
+    "10/5(月)": {
+        "片山": [
+            "b396",  # 中村
+            "b321",  # 谷
+            "b446",  # 滝口
+            "b417",  # 小谷野
+            "b370",  # 大越
+            "b441",  # 河村
+            "b458",  # 川井
+            "b423",  # 久髙
+            "b144",  # 原
+            "b500",  # 徳山
+        ],
+    },
+    "10/10(土)": {
+        "鳥越": [
+            "b455",  # 熊谷
+            "b488",  # 加賀谷
+            "b425",  # 小野
+            "b503",  # 吉澤
+            "b414",  # 西野
+            "b457",  # 今野
+            "b236",  # 中川
+            "b451",  # 高雄
+            "b502",  # 飯澤
+            "b484",  # 三原
+            "b329",  # 岩間
+        ],
+    },
+    "10/17(土)": {
+        "鳥越": [
+            "b320",  # 上東
+            "b380",  # 鳥山
+            "b465",  # 後藤
+            "b495",  # 大内
+            "b482",  # 相川
+            "b395",  # 府川
+            "b75",  # 安田
+            "b445",  # 村松
+            "b494",  # 杉町
+            "b245",  # 桐渕
+            "b083",  # 坂本
+        ],
+    },
+}
+
+
 def order_group_with_overrides(
     group: list[Assignment],
     doctor: str,
     day_key: str,
     overrides: dict,
 ) -> list[Assignment]:
-    """overrides に順があればそれを使い、なければルート最適化。"""
+    """指定順、または overrides の順。なければルート最適化。"""
+    manual = MANUAL_ROUTE_ORDER.get(day_key, {}).get(doctor)
+    if manual:
+        by_id = {a.patient.chart_id: a for a in group}
+        ordered = [by_id[cid] for cid in manual if cid in by_id]
+        seen = set(manual)
+        for a in group:
+            if a.patient.chart_id not in seen:
+                ordered.append(a)
+        compute_schedule_times(ordered, doctor)
+        return ordered
     routes = (overrides or {}).get("routes") or {}
     route_ids = None
     day_routes = routes.get(day_key)
@@ -1066,12 +984,11 @@ def assign_patients(patients: list[Patient]) -> list[Assignment]:
 
     remaining.sort(key=tightness)
 
-    target_per_day = {dk: 8 for dk in DAY_ORDER}
-    target_per_day["9/7(月)"] = 14
-    target_per_day["9/14(月)"] = 5
-    target_per_day["9/28(月)"] = 6
-    target_per_day["9/19(土)"] = 10
-    target_per_day["9/26(土)"] = 10
+    target_per_day = {dk: 11 for dk in DAY_ORDER}
+    target_per_day["10/3(土)"] = 10
+    target_per_day["10/5(月)"] = 13
+    target_per_day["10/19(月)"] = 12
+    target_per_day["10/26(月)"] = 6
 
     for p in remaining:
         options: list[tuple[tuple[int, int], str, str]] = []
@@ -1203,25 +1120,38 @@ def build_visit_units(group: list[Assignment]) -> list[list[Assignment]]:
 
 
 def optimize_route(group: list[Assignment], doctor: str) -> list[Assignment]:
+    """西から東へ進み、帰宅地点（花輪・鳥越は東大泉、片山は学園町）に近い訪問を末尾にする。"""
     if len(group) <= 1:
         return group
 
     chains = build_visit_units(group)
+    anchor = 80 if doctor == "片山" else 94
 
     def cluster_order(area: str, address: str) -> int:
-        order = AREA_CLUSTER_ORDER.get(area, 50)
         if is_mitaka_area(area, address):
-            return 900
-        if area == "和光" or "和光" in address:
-            return 850
+            return 110
+        if area == "和光" or "和光" in (address or ""):
+            return 100
         if area == "光が丘":
-            return 840
-        return order
+            return 105
+        if area == "新座" or "新座" in (address or ""):
+            return 101
+        return AREA_CLUSTER_ORDER.get(area, 50)
 
-    chains.sort(key=lambda ch: (cluster_order(ch[0].patient.area, ch[0].patient.address), ch[0].patient.name))
+    near: list[list[Assignment]] = []
+    path: list[list[Assignment]] = []
+    for ch in chains:
+        pos = cluster_order(ch[0].patient.area, ch[0].patient.address)
+        # 帰宅地点の近くは最後に回して、遠い方面のあとで戻る
+        if abs(pos - anchor) <= 8:
+            near.append(ch)
+        else:
+            path.append(ch)
+    path.sort(key=lambda ch: (cluster_order(ch[0].patient.area, ch[0].patient.address), ch[0].patient.name))
+    near.sort(key=lambda ch: (abs(cluster_order(ch[0].patient.area, ch[0].patient.address) - anchor), ch[0].patient.name))
 
     flat: list[Assignment] = []
-    for ch in chains:
+    for ch in path + near:
         flat.extend(ch)
     return apply_time_window_order(flat, doctor)
 
@@ -1231,10 +1161,45 @@ def time_window_priority(a: Assignment, doctor: str) -> tuple[int, int]:
     cid = a.patient.chart_id
     day = a.day_key
 
-    # -1: 明示的にルート先頭（三鷹でも末尾にしない）
+    if cid == "b346":  # 月曜11:30以降NG
+        return (0, 0)
+    if cid == "b221":  # 月曜AM早め
+        return (0, 1)
+    if cid == "b494":  # 入浴帯の前に終えるため先頭
+        return (-1, 0)
+    if cid == "b320":  # 14:05までに終了。杉町の次
+        return (-1, 1)
+    if cid == "b380":  # 上東と同じS井荻の直後
+        return (-1, 2)
+    if cid == "b364" and doctor == "花輪":  # 学園町側。13時の訪看より前
+        return (2, 77)
+    if cid == "b505" and doctor == "花輪":  # 増田の前。12:20台
+        return (2, 75)
+    if cid == "b500" and doctor == "片山":  # 14:00-15:00入浴の後
+        return (6, 30)
+    if cid == "b364" and doctor == "片山":  # 13:00-14:00の後。宮本と同じFH
+        return (6, 28)
+    if cid == "b499":  # 中原（大町6）の直後
+        return (2, 89)
+    if cid == "b251":  # 午後早め
+        return (1, 0)
+    if cid == "b404":  # 同施設。16時前に終えて和泉の直前
+        return (3, 40)
+    if cid == "b213":
+        return (3, 41)
+    if cid == "b349":  # 16時開始。末尾の東大泉より前
+        return (3, 42)
+    if cid in {"b148", "b149", "b208"}:  # 土曜15:00以降
+        return (3, 5)
+    if cid == "b495":  # 土曜14時以降
+        return (2, 45)
+    if cid == "b328":  # 東大泉。帰宅側の末尾
+        return (6, 3)
+    if cid == "b482":  # 月曜10:30-13:00は不可。土曜14:00-15:30
+        return (2, 40)
     if cid == "b216":  # 鴇田：一番最初
         return (-1, 0)
-    if cid == "b288":  # 水上：花輪の一番最初
+    if cid == "b288" and doctor == "花輪":  # 水上は花輪の先頭
         return (-1, 0)
     if cid == "b508":  # 雨谷：9/19先頭（新座）
         return (-1, 0)
@@ -1277,18 +1242,18 @@ def time_window_priority(a: Assignment, doctor: str) -> tuple[int, int]:
         return (1, 5)
 
     # 0: 14時前必須 / 8/1内の締切優先 / 午後NG帯の手前
-    if cid == "b455":  # 熊谷 土曜14:00以降NG
-        return (0, 0)
+    if cid == "b455":  # 熊谷。14時以降NGなので先頭
+        return (-1, 5)
     if cid == "b320" and day in {"8/8(土)", "8/22(土)"}:  # 上東 14:15以降NG
         return (0, 1)
     if cid == "b346":  # 嶋 14:30-15:10 NG → 13時台〜14:20前に終了
         return (0, 2)
-    if cid == "b493":  # 宮本 土曜15:00-16:00 NG → 15時前必須
+    if cid == "b493" and day.endswith("(土)"):  # 土曜15:10-15:40を前半で外す
         return (0, 3)
+    if cid == "b493" and doctor == "花輪":  # 月曜11:00-11:30は花輪の後半へ
+        return (2, 120)
     if cid == "b335":  # 吉岡典照：末尾回避
         return (1, 8)
-    if cid == "b484":  # 三原：遠方末尾回避のため中盤
-        return (2, 55)
 
     # 1: 14:00以降開始（13-14 NG）/ 14:00-15:30 窓
     if cid == "b495" and doctor == "鳥越":  # 大内 土曜13-14NG
@@ -1310,41 +1275,35 @@ def time_window_priority(a: Assignment, doctor: str) -> tuple[int, int]:
     if cid == "b349":
         return (2, 72)
 
-    # 5: 遠方（三鷹・吉祥寺）は可能な限り末尾
-    if is_mitaka_area(a.patient.area, a.patient.address):
-        return (5, 0)
-
-    # 2: 通常（エリア順）
+    # 帰宅地点に近い人ほど末尾。和光・三鷹は途中の寄り道にして、最後は自宅側に戻す。
     base = AREA_CLUSTER_ORDER.get(a.patient.area, 50)
-    if a.patient.area == "和光" or "和光" in (a.patient.address or ""):
-        # 和光は後半だが16:30超過しやすいので、16時希望帯の直前へ
-        return (3, 50)
-    if a.patient.area == "光が丘":
-        return (3, 40)
+    anchor = 80 if doctor == "片山" else 94
+    if a.patient.area in {"和光", "光が丘", "新座"} or "和光" in (a.patient.address or ""):
+        return (4, base)
+    if is_mitaka_area(a.patient.area, a.patient.address):
+        return (4, base)
+    if cid == "b144":  # 15:20-16:20はリハ。東大泉の最後で16:20以降
+        return (6, 30)
+    # 帰宅は東大泉（花輪・鳥越）か学園町（片山）だけを末尾にする
+    if doctor == "片山" and a.patient.area in {"学4", "学5", "学6", "FH", "FH大泉"}:
+        return (6, 20 - abs(base - anchor))
+    if doctor != "片山" and a.patient.area in {"東1", "東2", "東3", "東5", "東6", "東7", "東大泉"}:
+        return (6, 20 - abs(base - anchor))
     return (2, base)
 
 
 def apply_time_window_order(group: list[Assignment], doctor: str) -> list[Assignment]:
-    if doctor == "花輪" and len(group) > 1:
-        first = [a for a in group if a.patient.chart_id == "b288"]
-        kimura = [a for a in group if a.patient.chart_id == "b357"]
-        rest = [a for a in group if a.patient.chart_id not in {"b288", "b357"}]
-        rest_sorted = sorted(rest, key=lambda a: (time_window_priority(a, doctor), a.patient.name))
-        if kimura:
-            head = [a for a in rest_sorted if a.patient.area in {"—", ""}]
-            tail = [a for a in rest_sorted if a.patient.area not in {"—", ""}]
-            return first + head + kimura + tail
-        if first:
-            return first + rest_sorted
-        return rest_sorted
-    if doctor != "鳥越" and doctor != "鳥越午前":
-        if doctor == "片山" and len(group) > 1:
-            return sorted(group, key=lambda a: time_window_priority(a, doctor))
-        return group
+    """時間帯を優先しつつ、同建物は一塊のまま並べる。"""
     if len(group) <= 1:
         return group
+    if doctor == "花輪":
+        first = [a for a in group if a.patient.chart_id == "b288"]
+        rest = [a for a in group if a.patient.chart_id != "b288"]
+        return first + _sort_units(rest, doctor)
+    return _sort_units(group, doctor)
 
-    # 同建物／ペアは一塊のままソートキーを共有
+
+def _sort_units(group: list[Assignment], doctor: str) -> list[Assignment]:
     units = build_visit_units(group)
 
     def unit_key(unit: list[Assignment]) -> tuple[int, int]:
@@ -1352,10 +1311,53 @@ def apply_time_window_order(group: list[Assignment], doctor: str) -> list[Assign
 
     units.sort(key=unit_key)
     flat: list[Assignment] = []
-    for u in units:
-        # ユニット内も時間帯優先で並べる（同建物の前〜後）
-        flat.extend(sorted(u, key=lambda a: time_window_priority(a, doctor)))
-    return flat
+    for unit in units:
+        flat.extend(sorted(unit, key=lambda a: time_window_priority(a, doctor)))
+    return _end_near_return(flat, doctor)
+
+
+def _end_near_return(flat: list[Assignment], doctor: str) -> list[Assignment]:
+    """末尾が三鷹・和光のとき、より帰宅地点に近い人を最後に回す。"""
+    if len(flat) < 3:
+        return flat
+    anchor = 80 if doctor == "片山" else 94
+
+    def pos(a: Assignment) -> int:
+        area = a.patient.area
+        address = a.patient.address or ""
+        if is_mitaka_area(area, address):
+            return 110
+        if area in {"和光", "光が丘", "新座"} or "和光" in address:
+            return 105
+        return AREA_CLUSTER_ORDER.get(area, 50)
+
+    last = flat[-1]
+    last_area = last.patient.area
+    last_addr = last.patient.address or ""
+    far_end = (
+        is_mitaka_area(last_area, last_addr)
+        or last_area in {"和光", "光が丘", "新座"}
+        or "和光" in last_addr
+    )
+    if not far_end:
+        return flat
+    best_i = None
+    best_dist = abs(pos(flat[-1]) - anchor)
+    for i, a in enumerate(flat[:-1]):
+        band = time_window_priority(a, doctor)[0]
+        if band <= 1 or band >= 6:
+            continue
+        dist = abs(pos(a) - anchor)
+        if dist < best_dist:
+            best_dist = dist
+            best_i = i
+    if best_i is None:
+        return flat
+    chosen = flat[best_i]
+    area = chosen.patient.area
+    same = [a for a in flat if a.patient.area == area]
+    rest = [a for a in flat if a.patient.area != area]
+    return rest + same
 
 
 def mark_cancelled_visits(assignments: list[Assignment]) -> None:
@@ -1564,13 +1566,13 @@ def day_time_ng_label(p: Patient, day_key: str) -> str:
         "b148": {"土": "15:00まで NG｜15時以降可"},  # 平峯
         "b149": {"土": "15:00まで NG｜15時以降可"},
         "b455": {"土": "14:00以降 NG｜13:50迄終了"},  # 熊谷
-        "b320": {"土": "14:15以降 NG｜14:05迄終了"},  # 上東（8/8・22）
+        "b320": {"土": "14:15以降 NG｜14:05迄終了"},  # 上東（整形で14:30出発）
         "b482": {"土": "14:00–15:30のみ可｜この枠内に訪問"},  # 相川
         "b495": {
             "土": "13:00–14:00 NG｜14時以降開始",  # 大内
             "月": "AM・13:00–15:00 NG｜15時以降",
         },
-        "b494": {"土": "15:00–16:00 NG｜14:50迄終了"},  # 杉町
+        "b494": {"土": "14:00–14:30・15:00–15:30 NG｜14時前に終了"},  # 杉町
         "b408": {"月": "午後 NG｜午前中に訪問", "土": "午後 NG｜午前中に訪問"},  # 加藤弘子
         "b357": {"月": "11:00以降 NG｜11時前に終了"},  # 木村一久
         "b391": {"月": "10:30以前 NG｜10:30以降開始"},  # 松村
@@ -1618,8 +1620,7 @@ def day_time_ng_label(p: Patient, day_key: str) -> str:
         "b514": {"月": "AM～13:00在宅｜13:00迄終了"},
     }
     if cid in by_id and dow in by_id[cid]:
-        # 上東は8/8・8/22のみ14:15以降NG
-        if cid == "b320" and day_key not in {"8/8(土)", "8/22(土)"}:
+        if cid == "b320" and dow != "土":
             return "—"
         return by_id[cid][dow]
 
@@ -1701,13 +1702,17 @@ def collect_not_on_list(assigned_ids: set[str]) -> list[dict[str, str]]:
         "b442": ("終了", "終了"),
         "b450": ("除外", "リスト除外"),
         "b467": ("終了", "往診不要・終了"),
-        "b478": ("除外", "リスト除外"),
+        "b376": ("除外", "3ヶ月に1回。11/17期限で11月リストへ"),
+        "b483": ("終了", "コメント「9/14終了」のため10月は組まない"),
+        "b399": ("要確認", "10月の希望日が全日NG。希望の再確認が必要"),
     }
     rows: list[dict[str, str]] = []
     seen: set[str] = set()
     with HOPE_CSV.open(encoding="utf-8-sig", newline="") as f:
         for row in csv.DictReader(f):
-            cid = normalize_chart_id(row.get("id") or row.get("ID") or "")
+            cid = normalize_chart_id(
+                row.get("patient_id") or row.get("id") or row.get("ID") or ""
+            )
             if not cid or cid in assigned_ids or cid in seen:
                 continue
             seen.add(cid)
@@ -1770,7 +1775,7 @@ def collect_not_on_list(assigned_ids: set[str]) -> list[dict[str, str]]:
                     "biko": biko,
                 }
             )
-    order = {"終了": 0, "入院": 1, "休止": 2, "対象外": 3, "除外": 4}
+    order = {"終了": 0, "入院": 1, "休止": 2, "要確認": 3, "対象外": 4, "除外": 5}
     rows.sort(key=lambda r: (order.get(r["kind"], 9), r["name"]))
     return rows
 
@@ -1794,12 +1799,12 @@ def generate_markdown(
                 unassigned.append(p)
 
     lines: list[str] = []
-    lines.append("# 9月往診リスト（2026年）")
+    lines.append("# 10月往診リスト（2026年）")
     lines.append("")
-    lines.append("> 作成日: 2026-08-21 ｜ 9月希望CSV＋最新台帳＋医師・ドライバー希望")
-    lines.append("> **v0.21: 2026-09-19 瓦林裕美を9/26鳥越・小林誠の直後へ（仲里→早尻）**")
+    lines.append("> 作成日: 2026-09-25 ｜ 10月希望CSV＋最新台帳＋医師・ドライバー希望")
+    lines.append("> **v0.1: 初版。10/12祝・10/24は往診なし。10/31は鳥越＋石橋**")
     lines.append(">")
-    lines.append("> **ドライバー:** 9/5・7・28＝宮嶋、9/14・19＝上杉、9/26＝石橋")
+    lines.append("> **ドライバー:** 10/3・5・26＝宮嶋、10/10・17・19＝上杉、10/31＝石橋")
     lines.append("")
     lines.append("## 適用ルール（要約）")
     lines.append("")
@@ -1807,19 +1812,20 @@ def generate_markdown(
     lines.append("|------|------|")
     lines.append("| 希望日の読み方 | CSVの **TRUE = その日はNG**、FALSE = 候補日 |")
     lines.append("| 完了列 | **TRUE = 希望入力済み**、FALSE = 希望未確定・要再確認 |")
-    lines.append("| 実施日 | **9/5, 7, 14, 19, 26, 28**（**9/12は往診中止**） |")
-    lines.append("| 花輪院長 | 月曜午前（**10:15** 榎本駐車場集合・出発）。実施日 **9/7・14・28**。**今回は人数上限なし** |")
-    lines.append("| 片山先生 | **9/7のみ**月曜午後（**13:15** ローソン前お迎え・出発） |")
-    lines.append("| 鳥越先生 | **土曜** 9/5・19・26。通常は午後13:00出発（**9/5・9/19は12:30**）。16:30帰宅**目安** |")
+    lines.append("| 実施日 | **10/3, 5, 10, 17, 19, 26, 31**（**10/12祝・10/24は往診なし**） |")
+    lines.append("| 花輪院長 | 月曜午前（**10:15** 榎本駐車場集合・出発）。実施日 **10/5・19・26**。定員5を優先 |")
+    lines.append("| 片山先生 | **10/5・19** 月曜午後（**13:15** ローソン前お迎え・出発）。終了後は学園町の自宅 |")
+    lines.append("| 鳥越先生 | **土曜** 10/3・10・17・31。13:00出発、自宅へ戻る。16:30帰宅は目安 |")
     lines.append("| 同住所・同建物 | **可能な限り同日・連続訪問** |")
+    lines.append("| 動線 | 出発地点から西→東に進め、最後は帰宅地点の近くで終える |")
     lines.append("| 期限 | 介護・自費＝最終実施の2ヶ月後月末／医療＝30日後 |")
-    lines.append("| 住所台帳 | 最新の編集用台帳CSVを使用 |")
+    lines.append("| 住所台帳 | 最新の編集用台帳CSV（8）を使用 |")
     lines.append("")
-    lines.append("## 医療患者の期限（9月は各1回）")
+    lines.append("## 医療患者の期限")
     lines.append("")
     lines.append("| 氏名 | ID | 期限 | 配置 | 遵守 |")
     lines.append("|------|-----|------|------|------|")
-    medical_ids = ["b253", "b491", "b328", "b370", "b474", "b75"]
+    medical_ids = ["b253", "b491", "b328", "b370", "b474", "b075"]
     by_pid: dict[str, list[Assignment]] = defaultdict(list)
     for a in assignments:
         by_pid[a.patient.chart_id].append(a)
@@ -2236,6 +2242,31 @@ TIME_HARD_RULES: dict[tuple[str, str], list[tuple]] = {
     ("b511", "月"): [("from", "10:30"), ("until_end", "13:00")],
     ("b511", "土"): [("from", "12:30"), ("until_end", "15:30")],
     ("b514", "月"): [("until_end", "13:00")],
+    ("b346", "月"): [("until_end", "11:20")],
+    ("b320", "土"): [("until_end", "14:05")],
+    ("b153", "月"): [("ng", "10:20", "11:00")],
+    ("b491", "土"): [("ng", "12:30", "13:30")],
+    ("b364", "月"): [("ng", "13:00", "14:00"), ("ng", "16:00", "16:30")],
+    ("b364", "土"): [("ng", "13:00", "14:00"), ("ng", "16:00", "16:30")],
+    ("b493", "月"): [("ng", "11:00", "11:30")],
+    ("b493", "土"): [("ng", "15:10", "15:40"), ("ng", "17:00", "17:30")],
+    ("b494", "土"): [("ng", "14:00", "14:30"), ("ng", "15:00", "15:30")],
+    ("b495", "土"): [("from", "14:00")],
+    ("b482", "月"): [("ng", "10:30", "13:00")],
+    ("b482", "土"): [("from", "14:00"), ("until_end", "15:30")],
+    ("b349", "土"): [("from", "16:00")],
+    ("b148", "土"): [("from", "15:00")],
+    ("b149", "土"): [("from", "15:00")],
+    ("b208", "土"): [("from", "15:00")],
+    ("b488", "土"): [("from", "13:30")],
+    ("b500", "月"): [("ng", "14:00", "15:00")],
+    ("b500", "土"): [("ng", "14:00", "15:00")],
+    ("b396", "月"): [("until_end", "15:20")],
+    ("b144", "土"): [("ng", "15:20", "16:20")],
+    ("b455", "土"): [("until_end", "13:50")],
+    ("b503", "土"): [("ng", "12:40", "13:40")],
+    ("b469", "土"): [("from", "13:30")],
+    ("b431", "月"): [("from", "10:00")],
 }
 
 
